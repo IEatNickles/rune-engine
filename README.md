@@ -1,6 +1,7 @@
 # Rune Engine
 This is a game engine written in [Odin](https://odin-lang.org/).
 
+# Goals
 My goals for this project are for it to be:
 
 * Simple

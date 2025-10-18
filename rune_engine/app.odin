@@ -1,6 +1,8 @@
-package engine
+package rune_engine
 
 import "base:runtime"
+import "core:log"
+import "core:os"
 import gl "vendor:OpenGL"
 import "vendor:glfw"
 
@@ -26,54 +28,29 @@ application: struct {
 	time:          f32,
 	delta_time:    f32,
 	current_scene: ^Scene,
+	log_file:      os.Handle,
 } = {}
 
 init :: proc() {
+	err: os.Error
+	application.log_file, err = os.open("log/log.txt", os.O_WRONLY | os.O_APPEND | os.O_CREATE)
+	if err != .Exist {
+		fmt.println(os.error_string(err))
+	}
+	context.logger = log.create_file_logger(application.log_file)
+
 	application.window = window_create(1280, 720, "The Title of This Window")
 	glfw.MakeContextCurrent(application.window.handle)
 
 	gl.load_up_to(4, 6, glfw.gl_set_proc_address)
 
-	glfw.SetKeyCallback(
-		application.window.handle,
-		proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
-			context = runtime.default_context()
-			append(
-				&application.events,
-				KeyEvent {
-					input.GLFW_KEY_TO_ENGINE_KEY[key],
-					cast(input.Action)action,
-					scancode,
-					transmute(input.Modifiers)cast(u8)mods,
-				},
-			)
-		},
-	)
-	glfw.SetMouseButtonCallback(
-		application.window.handle,
-		proc "c" (window: glfw.WindowHandle, button, scancode, action: i32) {
-			context = runtime.default_context()
-			append(
-				&application.events,
-				MouseButtonEvent{cast(input.MouseButton)button, cast(input.Action)action},
-			)
-		},
-	)
-	glfw.SetCursorPosCallback(
-		application.window.handle,
-		proc "c" (window: glfw.WindowHandle, x, y: f64) {
-			context = runtime.default_context()
-			append(&application.events, MousePosEvent{{cast(f32)x, cast(f32)y}})
-		},
-	)
-	glfw.SetScrollCallback(
-		application.window.handle,
-		proc "c" (window: glfw.WindowHandle, x, y: f64) {
-			context = runtime.default_context()
-			append(&application.events, ScrollEvent{cast(f32)y, cast(f32)x})
-		},
-	)
+	setup_glfw_callbacks()
 	application.running = true
+}
+
+terminate :: proc() {
+	glfw.Terminate()
+	os.close(application.log_file)
 }
 
 load_scene :: proc(scene: ^Scene) {
@@ -143,14 +120,52 @@ close :: proc() {
 	application.running = false
 }
 
-terminate :: proc() {
-	glfw.Terminate()
-}
-
 get_time :: proc() -> f32 {
 	return cast(f32)glfw.GetTime()
 }
 
 get_delta_time :: proc() -> f32 {
 	return cast(f32)glfw.GetTime() - application.time
+}
+
+setup_glfw_callbacks :: proc() {
+	glfw.SetKeyCallback(
+		application.window.handle,
+		proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
+			context = runtime.default_context()
+			append(
+				&application.events,
+				KeyEvent {
+					input.GLFW_KEY_TO_ENGINE_KEY[key],
+					cast(input.Action)action,
+					scancode,
+					transmute(input.Modifiers)cast(u8)mods,
+				},
+			)
+		},
+	)
+	glfw.SetMouseButtonCallback(
+		application.window.handle,
+		proc "c" (window: glfw.WindowHandle, button, scancode, action: i32) {
+			context = runtime.default_context()
+			append(
+				&application.events,
+				MouseButtonEvent{cast(input.MouseButton)button, cast(input.Action)action},
+			)
+		},
+	)
+	glfw.SetCursorPosCallback(
+		application.window.handle,
+		proc "c" (window: glfw.WindowHandle, x, y: f64) {
+			context = runtime.default_context()
+			append(&application.events, MousePosEvent{{cast(f32)x, cast(f32)y}})
+		},
+	)
+	glfw.SetScrollCallback(
+		application.window.handle,
+		proc "c" (window: glfw.WindowHandle, x, y: f64) {
+			context = runtime.default_context()
+			append(&application.events, ScrollEvent{cast(f32)y, cast(f32)x})
+		},
+	)
 }

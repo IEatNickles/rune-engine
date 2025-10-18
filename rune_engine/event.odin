@@ -1,4 +1,4 @@
-package engine
+package rune_engine
 
 import "input"
 
