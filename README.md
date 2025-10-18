@@ -10,23 +10,32 @@ My goals for this project are for it to be:
 * and Extendable
 
 # Building
+Make sure you have [Odin](https://odin-lang.org/docs/install/) installed.  
 Clone the repo:
 ```
 git clone https://github.com/IEatNickles/rune-engine
 ```
 ## Windows
-Not supported yet (though `build.sh` _might_ work).
+Run the `build.bat` file.
 ## Linux
-Run the `build.sh` script
+Run the `build.sh` file.
 ## Mac
-See [Windows](#windows) (maybe idk)
+I _think_ you can just run `build.sh`.
+## Manually with the `odin` compiler
+Go into the `rune-engine` directory:
+```
+cd ./path/to/rune/rune-engine/
+```
+Build the `rune_engine` subdirectory as a shared library: 
+```
+odin build rune_engine/ -build-mode:shared
+```
+or a static library:
+```
+odin build rune_engine/ -build-mode:static
+```
+_**DO NOT BUILD AS AN EXECUTABLE!!!**_
 
-# Roadmap (in no particular order)
-- [ ] make a rendering engine
-- [ ] make a scene system
-- [ ] make a physics system with [Jolt](https://github.com/jrouwe/JoltPhysics)
-- [ ] make a GUI editor
-- [ ] make a scripting engine
-- [ ] profit?
+# Roadmap
+[Here is a Trello board](https://trello.com/b/2UwnTTkS/todo) for what I am working on (if I remember to keep it up-to-date).
 
-[Here is a Trello board](https://trello.com/b/2UwnTTkS/todo), it'll have more details about stuff and probably be more up-to-date (maybe).
