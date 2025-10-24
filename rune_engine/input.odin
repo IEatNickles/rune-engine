@@ -1,5 +1,7 @@
 package rune_engine
 
+import "vendor:glfw"
+
 import "input"
 
 key_down :: proc(key: input.KeyCode) -> bool {
@@ -32,4 +34,17 @@ get_scroll :: proc() -> f32 {
 
 get_scroll_horizontal :: proc() -> f32 {
 	return application.input.horizontal_scroll
+}
+
+set_cursor_state :: proc(state: input.CursorState) {
+	switch state {
+	case .Hidden:
+		glfw.SetInputMode(application.window.handle, glfw.CURSOR, glfw.CURSOR_HIDDEN)
+	case .Visible:
+		glfw.SetInputMode(application.window.handle, glfw.CURSOR, glfw.CURSOR_NORMAL)
+	case .LockedAndHidden:
+		glfw.SetInputMode(application.window.handle, glfw.CURSOR, glfw.CURSOR_DISABLED)
+	case .LockedAndVisible:
+		glfw.SetInputMode(application.window.handle, glfw.CURSOR, glfw.CURSOR_CAPTURED)
+	}
 }

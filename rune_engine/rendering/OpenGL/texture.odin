@@ -1,18 +1,21 @@
-package rendering
+package opengl
 
 import "core:fmt"
 import "core:log"
 import gl "vendor:OpenGL"
 import "vendor:stb/image"
 
-Texture :: distinct u32
+import ".."
 
 TextureParameters :: struct {
 	filter:    TextureFilter,
 	wrap_mode: TextureWrap,
 }
 
-load_texture :: proc(path: string, params: TextureParameters = {.Linear, .Repeat}) -> Texture {
+load_texture :: proc(
+	path: string,
+	params: TextureParameters = {.Linear, .Repeat},
+) -> rendering.Texture {
 	texture: u32
 	gl.CreateTextures(gl.TEXTURE_2D, 1, &texture)
 	gl.TextureParameteri(texture, gl.TEXTURE_MIN_FILTER, cast(i32)params.filter)
@@ -47,10 +50,10 @@ load_texture :: proc(path: string, params: TextureParameters = {.Linear, .Repeat
 	gl.TextureStorage2D(texture, 1, internal_format, width, height)
 	gl.TextureSubImage2D(texture, 0, 0, 0, width, height, format, gl.UNSIGNED_BYTE, image_data)
 
-	return cast(Texture)texture
+	return cast(rendering.Texture)texture
 }
 
-bind_texture :: proc(texture: ^Texture, unit: u32 = 0) {
+bind_texture :: proc(texture: ^rendering.Texture, unit: u32 = 0) {
 	gl.BindTextureUnit(unit, cast(u32)texture^)
 }
 

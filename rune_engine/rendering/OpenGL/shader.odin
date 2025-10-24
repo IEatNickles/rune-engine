@@ -1,4 +1,4 @@
-package rendering
+package opengl
 
 import "core:fmt"
 import "core:io"
@@ -8,23 +8,55 @@ import "core:path/filepath"
 import "core:strings"
 import gl "vendor:OpenGL"
 
+import ".."
+
 ShaderUniform :: struct {
 	location: i32,
 	type:     ShaderUniformType,
 	size:     u32,
 }
 
-Shader :: struct {
-	id:       u32,
-	uniforms: map[string]ShaderUniform,
+// Shader :: struct {
+// 	id:       u32,
+// 	uniforms: map[string]ShaderUniform,
+// }
+
+uniforms: map[rendering.Shader]map[string]ShaderUniform
+
+pre_process_shader :: proc(path: string) -> map[ShaderType]string {
+	shaders: map[ShaderType]string
+	content_bytes, ok := os.read_entire_file(path)
+	content := cast(string)content_bytes
+	for l in strings.split_lines_iterator(&content) {
+		if strings.starts_with(l, "#shader") {
+			t, ok2 := strings.substring(l, strings.index_byte(l, ' '), len(l))
+			switch t {
+			case "vertex":
+			case "fragment":
+			case "geometry":
+			}
+		}
+	}
+	return shaders
 }
 
-create_shader :: proc() -> Shader {
-	return Shader{gl.CreateProgram(), {}}
+create_shader :: proc(vsh_path, fsh_path: string) -> rendering.Shader {
+	prog := rendering.Shader(gl.CreateProgram())
+
+	if err, ok := shader_attach_from_file(&prog, vsh_path, .Vertex); !ok {
+		fmt.println("Vertex shader error: ", err)
+	}
+	if err, ok := shader_attach_from_file(&prog, fsh_path, .Fragment); !ok {
+		fmt.println("Fragment shader error: ", err)
+	}
+	if err, ok := link_shader(&prog); !ok {
+		fmt.println("Shader program error: ", err)
+	}
+	return prog
 }
 
 shader_attach_from_src :: proc(
-	prog: ^Shader,
+	prog: ^rendering.Shader,
 	src: string,
 	type: ShaderType,
 ) -> (
@@ -39,13 +71,13 @@ shader_attach_from_src :: proc(
 	error = check_error(shader, gl.COMPILE_STATUS, gl.GetShaderiv, gl.GetShaderInfoLog) or_return
 	ok = true
 
-	gl.AttachShader(prog.id, shader)
+	gl.AttachShader(cast(u32)prog^, shader)
 	gl.DeleteShader(shader)
 	return
 }
 
 shader_attach_from_file :: proc(
-	prog: ^Shader,
+	prog: ^rendering.Shader,
 	path: string,
 	type: ShaderType,
 ) -> (
@@ -61,13 +93,17 @@ shader_attach_from_file :: proc(
 	return shader_attach_from_src(prog, cast(string)src, type)
 }
 
-link_shader :: proc(prog: ^Shader) -> (error: string, ok: bool) {
-	prog_id := prog.id
-	gl.LinkProgram(prog_id)
-	error = check_error(prog_id, gl.LINK_STATUS, gl.GetProgramiv, gl.GetProgramInfoLog) or_return
-	gl.ValidateProgram(prog_id)
+link_shader :: proc(prog: ^rendering.Shader) -> (error: string, ok: bool) {
+	gl.LinkProgram(cast(u32)prog^)
 	error = check_error(
-		prog_id,
+		cast(u32)prog^,
+		gl.LINK_STATUS,
+		gl.GetProgramiv,
+		gl.GetProgramInfoLog,
+	) or_return
+	gl.ValidateProgram(cast(u32)prog^)
+	error = check_error(
+		cast(u32)prog^,
 		gl.VALIDATE_STATUS,
 		gl.GetProgramiv,
 		gl.GetProgramInfoLog,
@@ -75,18 +111,19 @@ link_shader :: proc(prog: ^Shader) -> (error: string, ok: bool) {
 	ok = true
 
 	uniform_count: i32
-	gl.GetProgramiv(prog.id, gl.ACTIVE_UNIFORMS, &uniform_count)
+	gl.GetProgramiv(cast(u32)prog^, gl.ACTIVE_UNIFORMS, &uniform_count)
 	if uniform_count > 0 {
 		buf_len: i32
-		gl.GetProgramiv(prog.id, gl.ACTIVE_UNIFORM_MAX_LENGTH, &buf_len)
+		gl.GetProgramiv(cast(u32)prog^, gl.ACTIVE_UNIFORM_MAX_LENGTH, &buf_len)
 		name := make([^]u8, buf_len)
 		len: i32
 		size: i32
 		type: u32
+		map_insert(&uniforms, prog^, map[string]ShaderUniform{})
 		for i in 0 ..< u32(uniform_count) {
-			gl.GetActiveUniform(prog.id, i, buf_len, &len, &size, &type, name)
+			gl.GetActiveUniform(cast(u32)prog^, i, buf_len, &len, &size, &type, name)
 			map_insert(
-				&prog.uniforms,
+				&uniforms[prog^],
 				strings.clone_from_ptr(name, int(len)),
 				ShaderUniform{i32(i), cast(ShaderUniformType)type, u32(size)},
 			)
@@ -96,8 +133,8 @@ link_shader :: proc(prog: ^Shader) -> (error: string, ok: bool) {
 	return
 }
 
-bind_shader :: proc(prog: ^Shader) {
-	gl.UseProgram(prog.id)
+bind_shader :: proc(prog: ^rendering.Shader) {
+	gl.UseProgram(cast(u32)prog^)
 }
 
 // Set a uniform in a shader.
@@ -151,31 +188,31 @@ shader_uniform :: proc {//
 	shader_uniform_mat2x3_f64,
 }
 
-shader_uniform_f32 :: proc(prog: ^Shader, name: string, value: f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_f32 :: proc(prog: ^rendering.Shader, name: string, value: f32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .Float)
-	gl.ProgramUniform1f(prog.id, uniform.location, value)
+	gl.ProgramUniform1f(cast(u32)prog^, uniform.location, value)
 	return true
 }
 
-shader_uniform_f64 :: proc(prog: ^Shader, name: string, value: f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_f64 :: proc(prog: ^rendering.Shader, name: string, value: f64) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .Double)
-	gl.ProgramUniform1d(prog.id, uniform.location, value)
+	gl.ProgramUniform1d(cast(u32)prog^, uniform.location, value)
 	return true
 }
 
-shader_uniform_i32 :: proc(prog: ^Shader, name: string, value: i32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_i32 :: proc(prog: ^rendering.Shader, name: string, value: i32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .Int)
-	gl.ProgramUniform1i(prog.id, uniform.location, value)
+	gl.ProgramUniform1i(cast(u32)prog^, uniform.location, value)
 	return true
 }
 
-shader_uniform_u32 :: proc(prog: ^Shader, name: string, value: u32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_u32 :: proc(prog: ^rendering.Shader, name: string, value: u32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .UnsignedInt)
-	gl.ProgramUniform1ui(prog.id, uniform.location, value)
+	gl.ProgramUniform1ui(cast(u32)prog^, uniform.location, value)
 	return true
 }
 
@@ -200,87 +237,87 @@ shader_uniform_vec2 :: proc {
 	shader_uniform_vec2_u32,
 }
 
-shader_uniform_vec4_f32 :: proc(prog: ^Shader, name: string, value: [4]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec4_f32 :: proc(prog: ^rendering.Shader, name: string, value: [4]f32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatVec4)
-	gl.ProgramUniform4f(prog.id, uniform.location, value.x, value.y, value.z, value.w)
+	gl.ProgramUniform4f(cast(u32)prog^, uniform.location, value.x, value.y, value.z, value.w)
 	return true
 }
 
-shader_uniform_vec3_f32 :: proc(prog: ^Shader, name: string, value: [3]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec3_f32 :: proc(prog: ^rendering.Shader, name: string, value: [3]f32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatVec3)
-	gl.ProgramUniform3f(prog.id, uniform.location, value.x, value.y, value.z)
+	gl.ProgramUniform3f(cast(u32)prog^, uniform.location, value.x, value.y, value.z)
 	return true
 }
 
-shader_uniform_vec2_f32 :: proc(prog: ^Shader, name: string, value: [2]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec2_f32 :: proc(prog: ^rendering.Shader, name: string, value: [2]f32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatVec2)
-	gl.ProgramUniform2f(prog.id, uniform.location, value.x, value.y)
+	gl.ProgramUniform2f(cast(u32)prog^, uniform.location, value.x, value.y)
 	return true
 }
 
-shader_uniform_vec4_f64 :: proc(prog: ^Shader, name: string, value: [4]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec4_f64 :: proc(prog: ^rendering.Shader, name: string, value: [4]f64) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleVec4)
-	gl.ProgramUniform4d(prog.id, uniform.location, value.x, value.y, value.z, value.w)
+	gl.ProgramUniform4d(cast(u32)prog^, uniform.location, value.x, value.y, value.z, value.w)
 	return true
 }
 
-shader_uniform_vec3_f64 :: proc(prog: ^Shader, name: string, value: [3]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec3_f64 :: proc(prog: ^rendering.Shader, name: string, value: [3]f64) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleVec3)
-	gl.ProgramUniform3d(prog.id, uniform.location, value.x, value.y, value.z)
+	gl.ProgramUniform3d(cast(u32)prog^, uniform.location, value.x, value.y, value.z)
 	return true
 }
 
-shader_uniform_vec2_f64 :: proc(prog: ^Shader, name: string, value: [2]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec2_f64 :: proc(prog: ^rendering.Shader, name: string, value: [2]f64) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleVec2)
-	gl.ProgramUniform2d(prog.id, uniform.location, value.x, value.y)
+	gl.ProgramUniform2d(cast(u32)prog^, uniform.location, value.x, value.y)
 	return true
 }
 
-shader_uniform_vec4_i32 :: proc(prog: ^Shader, name: string, value: [4]i32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec4_i32 :: proc(prog: ^rendering.Shader, name: string, value: [4]i32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .IntVec4)
-	gl.ProgramUniform4i(prog.id, uniform.location, value.x, value.y, value.z, value.w)
+	gl.ProgramUniform4i(cast(u32)prog^, uniform.location, value.x, value.y, value.z, value.w)
 	return true
 }
 
-shader_uniform_vec3_i32 :: proc(prog: ^Shader, name: string, value: [3]i32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec3_i32 :: proc(prog: ^rendering.Shader, name: string, value: [3]i32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .IntVec3)
-	gl.ProgramUniform3i(prog.id, uniform.location, value.x, value.y, value.z)
+	gl.ProgramUniform3i(cast(u32)prog^, uniform.location, value.x, value.y, value.z)
 	return true
 }
 
-shader_uniform_vec2_i32 :: proc(prog: ^Shader, name: string, value: [2]i32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec2_i32 :: proc(prog: ^rendering.Shader, name: string, value: [2]i32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .IntVec2)
-	gl.ProgramUniform2i(prog.id, uniform.location, value.x, value.y)
+	gl.ProgramUniform2i(cast(u32)prog^, uniform.location, value.x, value.y)
 	return true
 }
 
-shader_uniform_vec4_u32 :: proc(prog: ^Shader, name: string, value: [4]u32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec4_u32 :: proc(prog: ^rendering.Shader, name: string, value: [4]u32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .UnsignedIntVec4)
-	gl.ProgramUniform4ui(prog.id, uniform.location, value.x, value.y, value.z, value.w)
+	gl.ProgramUniform4ui(cast(u32)prog^, uniform.location, value.x, value.y, value.z, value.w)
 	return true
 }
 
-shader_uniform_vec3_u32 :: proc(prog: ^Shader, name: string, value: [3]u32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec3_u32 :: proc(prog: ^rendering.Shader, name: string, value: [3]u32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .UnsignedIntVec3)
-	gl.ProgramUniform3ui(prog.id, uniform.location, value.x, value.y, value.z)
+	gl.ProgramUniform3ui(cast(u32)prog^, uniform.location, value.x, value.y, value.z)
 	return true
 }
 
-shader_uniform_vec2_u32 :: proc(prog: ^Shader, name: string, value: [2]u32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_vec2_u32 :: proc(prog: ^rendering.Shader, name: string, value: [2]u32) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .UnsignedIntVec2)
-	gl.ProgramUniform2ui(prog.id, uniform.location, value.x, value.y)
+	gl.ProgramUniform2ui(cast(u32)prog^, uniform.location, value.x, value.y)
 	return true
 }
 
@@ -353,129 +390,201 @@ shader_uniform_mat2x3 :: proc {
 	shader_uniform_mat2x3_f64,
 }
 
-shader_uniform_mat4_f32 :: proc(prog: ^Shader, name: string, value: ^matrix[4, 4]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat4_f32 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[4, 4]f32,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatMat4)
-	gl.ProgramUniformMatrix4fv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix4fv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat3_f32 :: proc(prog: ^Shader, name: string, value: ^matrix[3, 3]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat3_f32 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[3, 3]f32,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatMat3)
-	gl.ProgramUniformMatrix3fv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix3fv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat2_f32 :: proc(prog: ^Shader, name: string, value: ^matrix[2, 2]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat2_f32 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[2, 2]f32,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatMat2)
-	gl.ProgramUniformMatrix2fv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix2fv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat4x3_f32 :: proc(prog: ^Shader, name: string, value: ^matrix[4, 3]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat4x3_f32 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[4, 3]f32,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatMat4x3)
-	gl.ProgramUniformMatrix4x3fv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix4x3fv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat4x2_f32 :: proc(prog: ^Shader, name: string, value: ^matrix[4, 2]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat4x2_f32 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[4, 2]f32,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatMat4x2)
-	gl.ProgramUniformMatrix4x2fv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix4x2fv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat3x4_f32 :: proc(prog: ^Shader, name: string, value: ^matrix[3, 4]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat3x4_f32 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[3, 4]f32,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatMat3x4)
-	gl.ProgramUniformMatrix3x4fv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix3x4fv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat3x2_f32 :: proc(prog: ^Shader, name: string, value: ^matrix[3, 2]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat3x2_f32 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[3, 2]f32,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatMat3x2)
-	gl.ProgramUniformMatrix3x2fv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix3x2fv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat2x4_f32 :: proc(prog: ^Shader, name: string, value: ^matrix[2, 4]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat2x4_f32 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[2, 4]f32,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatMat2x4)
-	gl.ProgramUniformMatrix2x4fv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix2x4fv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat2x3_f32 :: proc(prog: ^Shader, name: string, value: ^matrix[2, 3]f32) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat2x3_f32 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[2, 3]f32,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .FloatMat2x3)
-	gl.ProgramUniformMatrix2x3fv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix2x3fv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat4_f64 :: proc(prog: ^Shader, name: string, value: ^matrix[4, 4]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat4_f64 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[4, 4]f64,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleMat4)
-	gl.ProgramUniformMatrix4dv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix4dv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat3_f64 :: proc(prog: ^Shader, name: string, value: ^matrix[3, 3]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat3_f64 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[3, 3]f64,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleMat3)
-	gl.ProgramUniformMatrix3dv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix3dv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat2_f64 :: proc(prog: ^Shader, name: string, value: ^matrix[2, 2]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat2_f64 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[2, 2]f64,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleMat2)
-	gl.ProgramUniformMatrix2dv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix2dv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat4x3_f64 :: proc(prog: ^Shader, name: string, value: ^matrix[4, 3]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat4x3_f64 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[4, 3]f64,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleMat4x3)
-	gl.ProgramUniformMatrix4x3dv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix4x3dv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat4x2_f64 :: proc(prog: ^Shader, name: string, value: ^matrix[4, 2]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat4x2_f64 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[4, 2]f64,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleMat4x2)
-	gl.ProgramUniformMatrix4x2dv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix4x2dv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat3x4_f64 :: proc(prog: ^Shader, name: string, value: ^matrix[3, 4]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat3x4_f64 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[3, 4]f64,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleMat3x4)
-	gl.ProgramUniformMatrix3x4dv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix3x4dv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat3x2_f64 :: proc(prog: ^Shader, name: string, value: ^matrix[3, 2]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat3x2_f64 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[3, 2]f64,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleMat3x2)
-	gl.ProgramUniformMatrix3x2dv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix3x2dv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat2x4_f64 :: proc(prog: ^Shader, name: string, value: ^matrix[2, 4]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat2x4_f64 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[2, 4]f64,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleMat2x4)
-	gl.ProgramUniformMatrix2x4dv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix2x4dv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 
-shader_uniform_mat2x3_f64 :: proc(prog: ^Shader, name: string, value: ^matrix[2, 3]f64) -> bool {
-	uniform := prog.uniforms[name] or_return
+shader_uniform_mat2x3_f64 :: proc(
+	prog: ^rendering.Shader,
+	name: string,
+	value: ^matrix[2, 3]f64,
+) -> bool {
+	uniform := uniforms[prog^][name] or_return
 	assert(uniform.type == .DoubleMat2x3)
-	gl.ProgramUniformMatrix2x3dv(prog.id, uniform.location, 1, false, &value[0, 0])
+	gl.ProgramUniformMatrix2x3dv(cast(u32)prog^, uniform.location, 1, false, &value[0, 0])
 	return true
 }
 

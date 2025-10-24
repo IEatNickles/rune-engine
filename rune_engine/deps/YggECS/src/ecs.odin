@@ -298,101 +298,105 @@ get_relation_type :: proc(c: PairType($R, $T)) -> typeid {
 }
 
 add_component :: proc(world: ^World, entity: EntityID, component: $T) {
-    cid: ComponentID
-    ok: bool
+	cid: ComponentID
+	ok: bool
 
-    when intrinsics.type_is_struct(T) && intrinsics.type_has_field(T, "relation") && intrinsics.type_has_field(T, "target") {
-        relation_cid: ComponentID
-        target_cid: ComponentID
+	when intrinsics.type_is_struct(
+		T,
+	) && intrinsics.type_has_field(T, "relation") && intrinsics.type_has_field(T, "target") {
+		relation_cid: ComponentID
+		target_cid: ComponentID
 
-        when type_of(component.relation) == EntityID {
-            relation_cid = ComponentID(component.relation)
-        } else {
-            relation_cid, ok = get_component_id(world, type_of(component.relation))
-            if !ok {
-                relation_cid = register_component(world, type_of(component.relation))
-            }
-        }
+		when type_of(component.relation) == EntityID {
+			relation_cid = ComponentID(component.relation)
+		} else {
+			relation_cid, ok = get_component_id(world, type_of(component.relation))
+			if !ok {
+				relation_cid = register_component(world, type_of(component.relation))
+			}
+		}
 
-        when type_of(component.target) == EntityID {
-            target_cid = ComponentID(component.target)
-        } else {
-            target_cid, ok = get_component_id(world, type_of(component.target))
-            if !ok {
-                target_cid = register_component(world, type_of(component.target))
-            }
-        }
+		when type_of(component.target) == EntityID {
+			target_cid = ComponentID(component.target)
+		} else {
+			target_cid, ok = get_component_id(world, type_of(component.target))
+			if !ok {
+				target_cid = register_component(world, type_of(component.target))
+			}
+		}
 
-        cid = hash_pair(relation_cid, target_cid)
+		cid = hash_pair(relation_cid, target_cid)
 
-        pair_type_info := type_info_of(T)
-        world.component_info[cid] = ComponentTypeInfo{
-            size      = size_of(T),
-            type_info = pair_type_info,
-        }
-    } else {
-        cid, ok = get_component_id(world, T)
-        if !ok {
-            cid = register_component(world, T)
-        }
-    }
+		pair_type_info := type_info_of(T)
+		world.component_info[cid] = ComponentTypeInfo {
+			size      = size_of(T),
+			type_info = pair_type_info,
+		}
+	} else {
+		cid, ok = get_component_id(world, T)
+		if !ok {
+			cid = register_component(world, T)
+		}
+	}
 
-    info := world.entity_index[entity]
-    old_archetype := info.archetype
-    new_archetype: ^Archetype
+	info := world.entity_index[entity]
+	old_archetype := info.archetype
+	new_archetype: ^Archetype
 
-    if old_archetype == nil {
-        new_component_ids: [1]ComponentID = {cid}
-        new_tag_ids: [1]ComponentID
-        tag_count := 0
-        if size_of(T) == 0 {
-            new_tag_ids[0] = cid
-            tag_count = 1
-        }
-        
-        new_archetype = get_or_create_archetype(world, new_component_ids[:], new_tag_ids[:])
-        
-        move_entity(world, entity, info, nil, new_archetype)
-    } else {
-        new_archetype, ok = old_archetype.add_edges[cid]
-        if !ok {
-            new_component_ids: [dynamic]ComponentID
+	if old_archetype == nil {
+		new_component_ids: [1]ComponentID = {cid}
+		new_tag_ids: [1]ComponentID
+		tag_count := 0
+		if size_of(T) == 0 {
+			new_tag_ids[0] = cid
+			tag_count = 1
+		}
+
+		new_archetype = get_or_create_archetype(world, new_component_ids[:], new_tag_ids[:])
+
+		move_entity(world, entity, info, nil, new_archetype)
+	} else {
+		new_archetype, ok = old_archetype.add_edges[cid]
+		if !ok {
+			new_component_ids: [dynamic]ComponentID
 			defer delete(new_component_ids)
-            append(&new_component_ids, ..old_archetype.component_ids)
-            append(&new_component_ids, cid)
-            sort_component_ids(new_component_ids[:])
+			append(&new_component_ids, ..old_archetype.component_ids)
+			append(&new_component_ids, cid)
+			sort_component_ids(new_component_ids[:])
 
-            new_tag_ids: [dynamic]ComponentID
+			new_tag_ids: [dynamic]ComponentID
 			defer delete(new_tag_ids)
-            append(&new_tag_ids, ..old_archetype.tag_ids)
-            if size_of(T) == 0 {
-                append(&new_tag_ids, cid)
-            }
+			append(&new_tag_ids, ..old_archetype.tag_ids)
+			if size_of(T) == 0 {
+				append(&new_tag_ids, cid)
+			}
 
-            new_archetype = get_or_create_archetype(world, new_component_ids[:], new_tag_ids[:])
-            
-            old_archetype.add_edges[cid] = new_archetype
-        }
+			new_archetype = get_or_create_archetype(world, new_component_ids[:], new_tag_ids[:])
 
-        move_entity(world, entity, info, old_archetype, new_archetype)
-    }
+			old_archetype.add_edges[cid] = new_archetype
+		}
 
-    when size_of(T) > 0 {
-        index := world.entity_index[entity].row
-        local_component := component
+		move_entity(world, entity, info, old_archetype, new_archetype)
+	}
 
-        when intrinsics.type_is_struct(T) && intrinsics.type_has_field(T, "relation") && intrinsics.type_has_field(T, "target") {
-            add_component_data(
-                new_archetype,
-                cid,
-                rawptr(&local_component),
-                index,
-                type_of(component.relation),
-            )
-        } else {
-            add_component_data(new_archetype, cid, rawptr(&local_component), index, T)
-        }
-    }
+	when size_of(T) > 0 {
+		index := world.entity_index[entity].row
+		local_component := component
+
+		when intrinsics.type_is_struct(
+			T,
+		) && intrinsics.type_has_field(T, "relation") && intrinsics.type_has_field(T, "target") {
+			add_component_data(
+				new_archetype,
+				cid,
+				rawptr(&local_component),
+				index,
+				type_of(component.relation),
+			)
+		} else {
+			add_component_data(new_archetype, cid, rawptr(&local_component), index, T)
+		}
+	}
 }
 
 add_component_data :: proc(
@@ -686,7 +690,7 @@ delete_archetype :: proc(archetype: ^Archetype) {
 			if a.id == archetype.id do delete_key(&other_archetype.remove_edges, key)
 		}
 	}
-	
+
 	for _, other_archetype in archetype.remove_edges {
 		for key, a in other_archetype.add_edges {
 			if a.id == archetype.id do delete_key(&other_archetype.add_edges, key)
@@ -723,10 +727,7 @@ sort_component_ids :: proc(ids: []ComponentID) {
 	}
 }
 
-hash_archetype :: proc(
-	component_ids: []ComponentID,
-	tag_ids: []ComponentID,
-) -> ArchetypeID {
+hash_archetype :: proc(component_ids: []ComponentID, tag_ids: []ComponentID) -> ArchetypeID {
 	h := u64(14695981039346656037) // FNV-1a 64-bit offset basis
 
 	// Sort and hash component_ids in-place
@@ -745,106 +746,111 @@ hash_archetype :: proc(
 }
 
 get_component :: proc {
-    get_component_same,
-    get_component_cast,
-    get_component_pair,
+	get_component_same,
+	get_component_cast,
+	get_component_pair,
 }
 
 get_component_same :: proc(world: ^World, entity: EntityID, $Component: typeid) -> ^Component {
-    info := world.entity_index[entity]
-    cid, ok := get_component_id(world, Component)
-    if !ok {
-        return nil
-    }
-    
-    archetype := info.archetype
-    if archetype == nil {
-        return nil
-    }
-    
-    table, exists := archetype.tables[cid]
-    if !exists {
-        return nil
-    }
-    
-    row := info.row
-    component_size := size_of(Component)
-    
-    if len(table) == 0 {
-        return nil
-    }
-    
-    num_components := len(table) / component_size
-    if row >= num_components {
-        return nil
-    }
-    
-    components := (cast(^[dynamic]Component)(&table))[:num_components]
-    return ^components[row]
+	info := world.entity_index[entity]
+	cid, ok := get_component_id(world, Component)
+	if !ok {
+		return nil
+	}
+
+	archetype := info.archetype
+	if archetype == nil {
+		return nil
+	}
+
+	table, exists := archetype.tables[cid]
+	if !exists {
+		return nil
+	}
+
+	row := info.row
+	component_size := size_of(Component)
+
+	if len(table) == 0 {
+		return nil
+	}
+
+	num_components := len(table) / component_size
+	if row >= num_components {
+		return nil
+	}
+
+	components := (cast(^[dynamic]Component)(&table))[:num_components]
+	return &components[row]
 }
 
-get_component_cast :: proc(world: ^World, entity: EntityID, $Component: typeid, $CastTo: typeid) -> ^CastTo {
-    info := world.entity_index[entity]
-    cid, ok := get_component_id(world, Component) 
-    if !ok {
-        return nil
-    }
-    
-    archetype := info.archetype
-    if archetype == nil {
-        return nil
-    }
-    
-    table, exists := archetype.tables[cid]
-    if !exists {
-        return nil
-    }
-    
-    row := info.row
-    component_size := size_of(CastTo)
-    
-    if len(table) == 0 {
-        return nil
-    }
-    
-    num_components := len(table) / component_size
-    if row >= num_components {
-        return nil
-    }
-    
-    components := (cast(^[dynamic]CastTo)(&table))[:num_components]
-    return ^components[row]
+get_component_cast :: proc(
+	world: ^World,
+	entity: EntityID,
+	$Component: typeid,
+	$CastTo: typeid,
+) -> ^CastTo {
+	info := world.entity_index[entity]
+	cid, ok := get_component_id(world, Component)
+	if !ok {
+		return nil
+	}
+
+	archetype := info.archetype
+	if archetype == nil {
+		return nil
+	}
+
+	table, exists := archetype.tables[cid]
+	if !exists {
+		return nil
+	}
+
+	row := info.row
+	component_size := size_of(CastTo)
+
+	if len(table) == 0 {
+		return nil
+	}
+
+	num_components := len(table) / component_size
+	if row >= num_components {
+		return nil
+	}
+
+	components := (cast(^[dynamic]CastTo)(&table))[:num_components]
+	return ^components[row]
 }
 
 get_component_pair :: proc(world: ^World, entity: EntityID, pair: PairType($R, $T)) -> ^R {
-    info := world.entity_index[entity]
-    relation_cid, relation_ok := get_component_id(world, R)
-    target_cid, target_ok := get_component_id(world, T)
-    
-    if !relation_ok || !target_ok {
-        return nil
-    }
-    
-    pair_cid := hash_pair(relation_cid, target_cid)
-    table, exists := archetype.tables[pair_cid]
-    if !exists {
-        return nil
-    }
-    
-    row := info.row
-    component_size := size_of(R)
-    
-    if len(table) == 0 {
-        return nil
-    }
-    
-    num_components := len(table) / component_size
-    if row >= num_components {
-        return nil
-    }
-    
-    components := (cast(^[dynamic]R)(&table))[:num_components]
-    return ^components[row]
+	info := world.entity_index[entity]
+	relation_cid, relation_ok := get_component_id(world, R)
+	target_cid, target_ok := get_component_id(world, T)
+
+	if !relation_ok || !target_ok {
+		return nil
+	}
+
+	pair_cid := hash_pair(relation_cid, target_cid)
+	table, exists := archetype.tables[pair_cid]
+	if !exists {
+		return nil
+	}
+
+	row := info.row
+	component_size := size_of(R)
+
+	if len(table) == 0 {
+		return nil
+	}
+
+	num_components := len(table) / component_size
+	if row >= num_components {
+		return nil
+	}
+
+	components := (cast(^[dynamic]R)(&table))[:num_components]
+	return ^components[row]
 }
 
 get_table :: proc {
@@ -854,23 +860,23 @@ get_table :: proc {
 }
 
 get_table_pair :: proc(world: ^World, archetype: ^Archetype, pair: PairType($R, $T)) -> []R {
-    relation_cid, relation_ok := get_component_id(world, R)
-    target_cid, target_ok := get_component_id(world, T)
-    
-    if !relation_ok || !target_ok {
-        return nil
-    }
-    
-    pair_cid := hash_pair(relation_cid, target_cid)
-    table, exists := archetype.tables[pair_cid]
-    
-    if !exists {
-        return nil
-    }
-    
-    component_size := size_of(R)
-    num_components := len(table) / component_size
-    return (cast(^[dynamic]R)(&table))[:num_components]
+	relation_cid, relation_ok := get_component_id(world, R)
+	target_cid, target_ok := get_component_id(world, T)
+
+	if !relation_ok || !target_ok {
+		return nil
+	}
+
+	pair_cid := hash_pair(relation_cid, target_cid)
+	table, exists := archetype.tables[pair_cid]
+
+	if !exists {
+		return nil
+	}
+
+	component_size := size_of(R)
+	num_components := len(table) / component_size
+	return (cast(^[dynamic]R)(&table))[:num_components]
 }
 
 
@@ -1057,31 +1063,61 @@ execute :: proc(q: ^QueryBuilder) -> []^Archetype {
 }
 
 get_component_id_from_term :: proc {
-    get_component_id_from_term_typeid,
-    get_component_id_from_term_pair_typeid_typeid,
-    get_component_id_from_term_pair_typeid_entity,
-    get_component_id_from_term_pair_entity_typeid,
-    get_component_id_from_term_pair_entity_entity,
+	get_component_id_from_term_typeid,
+	get_component_id_from_term_pair_typeid_typeid,
+	get_component_id_from_term_pair_typeid_entity,
+	get_component_id_from_term_pair_entity_typeid,
+	get_component_id_from_term_pair_entity_entity,
 }
 
-get_component_id_from_term_typeid :: proc(world: ^World, component: typeid) -> (ComponentID, bool) {
-    return get_component_id(world, component)
+get_component_id_from_term_typeid :: proc(
+	world: ^World,
+	component: typeid,
+) -> (
+	ComponentID,
+	bool,
+) {
+	return get_component_id(world, component)
 }
 
-get_component_id_from_term_pair_typeid_typeid :: proc(world: ^World, component: PairType(typeid, typeid)) -> (ComponentID, bool) {
-    return get_component_id_from_pair(world, component)
+get_component_id_from_term_pair_typeid_typeid :: proc(
+	world: ^World,
+	component: PairType(typeid, typeid),
+) -> (
+	ComponentID,
+	bool,
+) {
+	return get_component_id_from_pair(world, component)
 }
 
-get_component_id_from_term_pair_typeid_entity :: proc(world: ^World, component: PairType(typeid, EntityID)) -> (ComponentID, bool) {
-    return get_component_id_from_pair(world, component)
+get_component_id_from_term_pair_typeid_entity :: proc(
+	world: ^World,
+	component: PairType(typeid, EntityID),
+) -> (
+	ComponentID,
+	bool,
+) {
+	return get_component_id_from_pair(world, component)
 }
 
-get_component_id_from_term_pair_entity_typeid :: proc(world: ^World, component: PairType(EntityID, typeid)) -> (ComponentID, bool) {
-    return get_component_id_from_pair(world, component)
+get_component_id_from_term_pair_entity_typeid :: proc(
+	world: ^World,
+	component: PairType(EntityID, typeid),
+) -> (
+	ComponentID,
+	bool,
+) {
+	return get_component_id_from_pair(world, component)
 }
 
-get_component_id_from_term_pair_entity_entity :: proc(world: ^World, component: PairType(EntityID, EntityID)) -> (ComponentID, bool) {
-    return get_component_id_from_pair(world, component)
+get_component_id_from_term_pair_entity_entity :: proc(
+	world: ^World,
+	component: PairType(EntityID, EntityID),
+) -> (
+	ComponentID,
+	bool,
+) {
+	return get_component_id_from_pair(world, component)
 }
 
 get_type_id_from_type_or_struct :: proc(value: $T) -> typeid {
@@ -1092,53 +1128,59 @@ get_type_id_from_type_or_struct :: proc(value: $T) -> typeid {
 	}
 }
 
-get_relation_from_pair :: proc(pair: $P/PairType) -> union{EntityID, typeid} {
+get_relation_from_pair :: proc(pair: $P/PairType) -> union {
+		EntityID,
+		typeid,
+	} {
 	return pair.relation
 }
 
-get_target_from_pair :: proc(pair: $P/PairType) -> union{EntityID, typeid} {
+get_target_from_pair :: proc(pair: $P/PairType) -> union {
+		EntityID,
+		typeid,
+	} {
 	return pair.target
 }
 
 get_component_id_from_pair :: proc(world: ^World, pair: $P/PairType) -> (ComponentID, bool) {
-    relation := get_relation_from_pair(pair)
-    relation_cid: ComponentID
-    
-    // Handle relation
-    switch r in relation {
-    case EntityID:
-        relation_cid = ComponentID(r)
-    case typeid:
-        ok: bool
-        relation_cid, ok = get_component_id(world, r)
-        if !ok {
-            return 0, false
-        }
-    case:
-        // fmt.println("Unknown relation type")
-        return 0, false
-    }
+	relation := get_relation_from_pair(pair)
+	relation_cid: ComponentID
 
-    target := get_target_from_pair(pair)
-    target_cid: ComponentID
-    
-    
-    // Handle target
-    switch t in target {
-    case EntityID:
-        target_cid = ComponentID(t)
-    case typeid:
-        ok: bool
-        target_cid, ok = get_component_id(world, t)
-        if !ok {
-            return 0, false
-        }
-    case:
-        return 0, false
-    }
+	// Handle relation
+	switch r in relation {
+	case EntityID:
+		relation_cid = ComponentID(r)
+	case typeid:
+		ok: bool
+		relation_cid, ok = get_component_id(world, r)
+		if !ok {
+			return 0, false
+		}
+	case:
+		// fmt.println("Unknown relation type")
+		return 0, false
+	}
 
-    result := hash_pair(relation_cid, target_cid)
-    return result, true
+	target := get_target_from_pair(pair)
+	target_cid: ComponentID
+
+
+	// Handle target
+	switch t in target {
+	case EntityID:
+		target_cid = ComponentID(t)
+	case typeid:
+		ok: bool
+		target_cid, ok = get_component_id(world, t)
+		if !ok {
+			return 0, false
+		}
+	case:
+		return 0, false
+	}
+
+	result := hash_pair(relation_cid, target_cid)
+	return result, true
 }
 
 hash_pair :: proc(relation_cid, target_cid: ComponentID) -> ComponentID {
@@ -1181,24 +1223,24 @@ query :: proc(world: ^World, terms: ..Term) -> []^Archetype {
 
 
 pair :: proc {
-    pair_generic,
-    pair_typeid_entity,
-    pair_entity_typeid,
-    pair_typeid_typeid,
+	pair_generic,
+	pair_typeid_entity,
+	pair_entity_typeid,
+	pair_typeid_typeid,
 }
 
 pair_generic :: proc(r: $R, t: $T) -> PairType(R, T) {
-    return PairType(R, T){r, t}
+	return PairType(R, T){r, t}
 }
 
 pair_typeid_entity :: proc(r: typeid, t: EntityID) -> PairType(typeid, EntityID) {
-    return PairType(typeid, EntityID){r, t}
+	return PairType(typeid, EntityID){r, t}
 }
 
 pair_entity_typeid :: proc(r: EntityID, t: typeid) -> PairType(EntityID, typeid) {
-    return PairType(EntityID, typeid){r, t}
+	return PairType(EntityID, typeid){r, t}
 }
 
 pair_typeid_typeid :: proc(r: typeid, t: typeid) -> PairType(typeid, typeid) {
-    return PairType(typeid, typeid){r, t}
+	return PairType(typeid, typeid){r, t}
 }
