@@ -1,5 +1,7 @@
 package opengl
 
+import "base:runtime"
+
 import "core:fmt"
 import "core:io"
 import "core:log"
@@ -68,7 +70,14 @@ shader_attach_from_src :: proc(
 	length := cast(i32)len(src)
 	gl.ShaderSource(shader, 1, &src_cstring, &length)
 	gl.CompileShader(shader)
-	error = check_error(shader, gl.COMPILE_STATUS, gl.GetShaderiv, gl.GetShaderInfoLog) or_return
+	when ODIN_DEBUG {
+		error = check_error(
+			shader,
+			gl.COMPILE_STATUS,
+			gl.GetShaderiv,
+			gl.GetShaderInfoLog,
+		) or_return
+	}
 	ok = true
 
 	gl.AttachShader(cast(u32)prog^, shader)
@@ -95,19 +104,23 @@ shader_attach_from_file :: proc(
 
 link_shader :: proc(prog: ^rendering.Shader) -> (error: string, ok: bool) {
 	gl.LinkProgram(cast(u32)prog^)
-	error = check_error(
-		cast(u32)prog^,
-		gl.LINK_STATUS,
-		gl.GetProgramiv,
-		gl.GetProgramInfoLog,
-	) or_return
+	when ODIN_DEBUG {
+		error = check_error(
+			cast(u32)prog^,
+			gl.LINK_STATUS,
+			gl.GetProgramiv,
+			gl.GetProgramInfoLog,
+		) or_return
+	}
 	gl.ValidateProgram(cast(u32)prog^)
-	error = check_error(
-		cast(u32)prog^,
-		gl.VALIDATE_STATUS,
-		gl.GetProgramiv,
-		gl.GetProgramInfoLog,
-	) or_return
+	when ODIN_DEBUG {
+		error = check_error(
+			cast(u32)prog^,
+			gl.VALIDATE_STATUS,
+			gl.GetProgramiv,
+			gl.GetProgramInfoLog,
+		) or_return
+	}
 	ok = true
 
 	uniform_count: i32
@@ -588,26 +601,28 @@ shader_uniform_mat2x3_f64 :: proc(
 	return true
 }
 
-check_error :: proc(
-	id: u32,
-	pname: u32,
-	iv_proc: proc "c" (_: u32, _: u32, _: [^]i32),
-	log_proc: proc "c" (_: u32, _: i32, _: ^i32, _: [^]u8),
-) -> (
-	error: string,
-	ok: bool,
-) {
-	status: i32
-	if iv_proc(id, pname, &status); status == 0 {
-		log_length: i32
-		iv_proc(id, gl.INFO_LOG_LENGTH, &log_length)
-		info_log := make([^]u8, log_length)
-		log_proc(id, log_length, &log_length, info_log)
-		error = strings.clone_from_ptr(info_log, cast(int)log_length, context.temp_allocator)
+when ODIN_DEBUG {
+	check_error :: proc(
+		id: u32,
+		pname: u32,
+		iv_proc: proc "c" (_: u32, _: u32, _: [^]i32, _: runtime.Source_Code_Location),
+		log_proc: proc "c" (_: u32, _: i32, _: ^i32, _: [^]u8, _: runtime.Source_Code_Location),
+	) -> (
+		error: string,
+		ok: bool,
+	) {
+		status: i32
+		if iv_proc(id, pname, &status, #location()); status == 0 {
+			log_length: i32
+			iv_proc(id, gl.INFO_LOG_LENGTH, &log_length, #location())
+			info_log := make([^]u8, log_length)
+			log_proc(id, log_length, &log_length, info_log, #location())
+			error = strings.clone_from_ptr(info_log, cast(int)log_length, context.temp_allocator)
+			return
+		}
+		ok = true
 		return
 	}
-	ok = true
-	return
 }
 
 ShaderType :: enum {

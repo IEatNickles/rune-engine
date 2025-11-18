@@ -64,12 +64,12 @@ create_mesh :: proc(
 	tan_size := size_of(f32) * len(tangents)
 	idc_size := size_of(u16) * mesh.index_count
 
-	gl.NamedBufferData(mesh.vbos[0], pos_size, raw_data(positions), gl.STATIC_DRAW)
-	gl.NamedBufferData(mesh.vbos[1], nrm_size, raw_data(normals), gl.STATIC_DRAW)
-	gl.NamedBufferData(mesh.vbos[2], tex_size, raw_data(texcoords), gl.STATIC_DRAW)
-	gl.NamedBufferData(mesh.vbos[3], col_size, raw_data(colors), gl.STATIC_DRAW)
-	gl.NamedBufferData(mesh.vbos[4], tan_size, raw_data(tangents), gl.STATIC_DRAW)
-	gl.NamedBufferData(mesh.ebo, idc_size, raw_data(indices), gl.STATIC_DRAW)
+	if pos_size > 0 do gl.NamedBufferStorage(mesh.vbos[0], pos_size, raw_data(positions), 0)
+	if nrm_size > 0 do gl.NamedBufferStorage(mesh.vbos[1], nrm_size, raw_data(normals), 0)
+	if tex_size > 0 do gl.NamedBufferStorage(mesh.vbos[2], tex_size, raw_data(texcoords), 0)
+	if col_size > 0 do gl.NamedBufferStorage(mesh.vbos[3], col_size, raw_data(colors), 0)
+	if tan_size > 0 do gl.NamedBufferStorage(mesh.vbos[4], tan_size, raw_data(tangents), 0)
+	if idc_size > 0 do gl.NamedBufferStorage(mesh.ebo, idc_size, raw_data(indices), 0)
 
 	mesh.transform = transform
 
@@ -78,18 +78,18 @@ create_mesh :: proc(
 }
 
 destroy_mesh :: proc(mesh: rendering.Mesh) {
-	mesh := meshes[mesh]
-	gl.DeleteBuffers(1, &mesh.vbos[0])
-	gl.DeleteBuffers(1, &mesh.vbos[1])
-	gl.DeleteBuffers(1, &mesh.vbos[2])
-	gl.DeleteBuffers(1, &mesh.vbos[3])
-	gl.DeleteBuffers(1, &mesh.vbos[4])
-	gl.DeleteBuffers(1, &mesh.ebo)
-	gl.DeleteVertexArrays(1, &mesh.vao)
+	mesh_data := meshes[mesh]
+	gl.DeleteBuffers(1, &mesh_data.vbos[0])
+	gl.DeleteBuffers(1, &mesh_data.vbos[1])
+	gl.DeleteBuffers(1, &mesh_data.vbos[2])
+	gl.DeleteBuffers(1, &mesh_data.vbos[3])
+	gl.DeleteBuffers(1, &mesh_data.vbos[4])
+	gl.DeleteBuffers(1, &mesh_data.ebo)
+	gl.DeleteVertexArrays(1, &mesh_data.vao)
 }
 
 draw_mesh :: proc(mesh: rendering.Mesh) {
-	mesh := meshes[mesh]
-	gl.BindVertexArray(mesh.vao)
-	gl.DrawElements(gl.TRIANGLES, i32(mesh.index_count), gl.UNSIGNED_SHORT, nil)
+	mesh_data := meshes[mesh]
+	gl.BindVertexArray(mesh_data.vao)
+	gl.DrawElements(gl.TRIANGLES, i32(mesh_data.index_count), gl.UNSIGNED_SHORT, nil)
 }

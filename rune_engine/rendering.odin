@@ -3,6 +3,7 @@
 
 package rune_engine
 
+import "core:fmt"
 import "core:log"
 
 import gl "vendor:OpenGL"
@@ -16,6 +17,13 @@ import "rendering/Vulkan"
 
 import "rendering"
 
+import "vendor:stb/image"
+
+TextureParameters :: struct {
+	filter:    TextureFilter,
+	wrap_mode: TextureWrap,
+}
+
 RenderApiType :: enum {
 	OpenGL,
 	DirectX11,
@@ -25,6 +33,24 @@ RenderApiType :: enum {
 }
 
 render_api: RenderApiType
+
+MaterialProperty :: union {
+	u32,
+	i32,
+	f32,
+	f64,
+	[2]f32,
+	[3]f32,
+	[4]f32,
+	[2]f64,
+	[3]f64,
+	[4]f64,
+}
+MaterialData :: struct {
+	shader:     rendering.Shader,
+	properties: map[string]MaterialProperty,
+}
+material_data :: map[rendering.Material]MaterialData
 
 create_render_api :: proc(type: RenderApiType) {
 	switch type {
@@ -73,6 +99,9 @@ bind_shader :: proc(prog: ^rendering.Shader) {
 	}
 }
 
+create_material :: proc(shader: rendering.Shader) {
+}
+
 set_shader_mat4 :: proc(prog: ^rendering.Shader, name: string, value: ^matrix[4, 4]f32) {
 	switch render_api {
 	case .OpenGL:
@@ -88,10 +117,46 @@ set_shader_mat4 :: proc(prog: ^rendering.Shader, name: string, value: ^matrix[4,
 	}
 }
 
-load_texture :: proc(path: string) -> rendering.Texture {
+load_texture :: proc(
+	path: string,
+	params: TextureParameters = {.Linear, .Repeat},
+) -> rendering.Texture {
+	width, height, channels: i32
+	image.set_flip_vertically_on_load(1)
+	data := image.load(cast(cstring)raw_data(path), &width, &height, &channels, 0)
+	if data == nil {
+		fmt.println(image.failure_reason())
+		return 0
+	}
+
+	texture: u32
 	switch render_api {
 	case .OpenGL:
-		return OpenGL.load_texture(path)
+		gl.CreateTextures(gl.TEXTURE_2D, 1, &texture)
+		gl.TextureParameteri(texture, gl.TEXTURE_MIN_FILTER, cast(i32)params.filter)
+		gl.TextureParameteri(texture, gl.TEXTURE_MAG_FILTER, cast(i32)params.filter)
+		gl.TextureParameteri(texture, gl.TEXTURE_WRAP_S, cast(i32)params.wrap_mode)
+		gl.TextureParameteri(texture, gl.TEXTURE_WRAP_T, cast(i32)params.wrap_mode)
+
+		format: u32
+		internal_format: u32
+		switch channels {
+		case 4:
+			format = gl.RGBA
+			internal_format = gl.RGBA8
+		case 3:
+			format = gl.RGB
+			internal_format = gl.RGB8
+		case 2:
+			format = gl.RG
+			internal_format = gl.RG8
+		case 1:
+			format = gl.R
+			internal_format = gl.R8
+		}
+		gl.TextureStorage2D(texture, 1, internal_format, width, height)
+		gl.TextureSubImage2D(texture, 0, 0, 0, width, height, format, gl.UNSIGNED_BYTE, data)
+		return cast(rendering.Texture)texture
 	case .DirectX11:
 		log.panic("DirectX11 is not supported")
 	case .DirectX12:
@@ -104,10 +169,10 @@ load_texture :: proc(path: string) -> rendering.Texture {
 	return 0
 }
 
-bind_texture :: proc(texture: ^rendering.Texture, unit: u32 = 0) {
+bind_texture :: proc(texture: rendering.Texture, unit: u32 = 0) {
 	switch render_api {
 	case .OpenGL:
-		OpenGL.bind_texture(texture, unit)
+		gl.BindTextureUnit(unit, cast(u32)texture)
 	case .DirectX11:
 		log.panic("DirectX11 is not supported")
 	case .DirectX12:
@@ -179,4 +244,32 @@ draw_model :: proc(model: ^Model) {
 	case .Metal:
 		log.panic("Metal is not supported")
 	}
+}
+
+draw_mesh :: proc(mesh: rendering.Mesh) {
+	switch render_api {
+	case .OpenGL:
+		OpenGL.draw_mesh(mesh)
+	case .DirectX11:
+		log.panic("DirectX11 is not supported")
+	case .DirectX12:
+		log.panic("DirectX12 is not supported")
+	case .Vulkan:
+		log.panic("Vulkan is not supported")
+	case .Metal:
+		log.panic("Metal is not supported")
+	}
+}
+
+TextureFilter :: enum {
+	Linear  = gl.LINEAR,
+	Nearest = gl.NEAREST,
+}
+
+TextureWrap :: enum {
+	Repeat            = gl.REPEAT,
+	ClampToEdge       = gl.CLAMP_TO_EDGE,
+	ClampToBorder     = gl.CLAMP_TO_BORDER,
+	MirroredRepeat    = gl.MIRRORED_REPEAT,
+	MirrorClampToEdge = gl.MIRROR_CLAMP_TO_EDGE,
 }

@@ -1,21 +1,36 @@
 package rune_engine
 
 import "base:runtime"
-import "core:log"
-import "core:os"
+import "core:reflect"
+
 import gl "vendor:OpenGL"
 import "vendor:glfw"
 
 import "core:fmt"
+import "core:log"
+import "core:math"
+import "core:math/linalg"
+import "core:os"
+import "rendering"
 
 import "input"
 
+LayerProcs :: struct {
+	on_attach: proc(data: rawptr),
+	on_update: proc(data: rawptr),
+	on_detach: proc(data: rawptr),
+}
+Layer :: struct {
+	procs: LayerProcs,
+	data:  rawptr,
+}
+
 @(private)
 application: struct {
-	window:        Window,
+	window:         Window,
 	// events:        [dynamic]Event,
-	running:       bool,
-	input:         struct {
+	running:        bool,
+	input:          struct {
 		keys:               input.KeyCode_BitSet,
 		prev_keys:          input.KeyCode_BitSet,
 		mouse_buttons:      input.MouseButton_BitSet,
@@ -25,11 +40,35 @@ application: struct {
 		scroll:             f32,
 		horizontal_scroll:  f32,
 	},
-	time:          f32,
-	delta_time:    f32,
-	current_scene: ^Scene,
-	log_file:      os.Handle,
+	time:           f32,
+	delta_time:     f32,
+	current_scene:  ^Scene,
+	log_file:       os.Handle,
+	default_shader: rendering.Shader,
+	layer_stack:    map[typeid]Layer,
 } = {}
+
+debug_callback :: proc "c" (
+	source, type, id, severity: u32,
+	length: i32,
+	message: cstring,
+	userparam: rawptr,
+) {
+	context = runtime.default_context()
+	severity_str: string
+	switch severity {
+	case gl.DEBUG_SEVERITY_LOW:
+		severity_str = "LOW"
+	case gl.DEBUG_SEVERITY_MEDIUM:
+		severity_str = "MEDIUM"
+	case gl.DEBUG_SEVERITY_HIGH:
+		severity_str = "HIGH"
+	case gl.DEBUG_SEVERITY_NOTIFICATION:
+		severity_str = "NOTIFICATION"
+	}
+
+	fmt.printfln("{} [{}] {}", type, severity_str, message)
+}
 
 init :: proc(title: string) {
 	err: os.Error
@@ -44,13 +83,21 @@ init :: proc(title: string) {
 
 	gl.load_up_to(4, 6, glfw.gl_set_proc_address)
 
+	gl.Enable(gl.CULL_FACE)
 	gl.Enable(gl.DEPTH_TEST)
+	gl.Enable(gl.DEBUG_OUTPUT)
+	gl.DebugMessageCallback(debug_callback, nil)
 
 	setup_glfw_callbacks()
 	application.running = true
+	application.default_shader = load_shader("assets/shaders/test.vs", "assets/shaders/test.fs")
 }
 
 terminate :: proc() {
+	for t in application.layer_stack {
+		pop_layer(t)
+	}
+
 	glfw.Terminate()
 	os.close(application.log_file)
 }
@@ -83,6 +130,10 @@ frame_start :: proc() {
 	application.input.prev_mouse_buttons = application.input.mouse_buttons
 
 	glfw.PollEvents()
+
+	for t, l in application.layer_stack {
+		l.procs.on_update(l.data)
+	}
 	// event: Event
 	// for poll_event(&event) {
 	// 	switch e in event {
@@ -109,6 +160,44 @@ frame_start :: proc() {
 }
 
 frame_end :: proc() {
+	bind_shader(&application.default_shader)
+	world, view, proj: matrix[4, 4]f32
+	for cam_arch in query(has(TransformComponent), has(CameraComponent)) {
+		cam_table := get_table(cam_arch, CameraComponent)
+		cam_trf_table := get_table(cam_arch, TransformComponent)
+		for e, i in cam_arch.entities {
+			transform := &cam_trf_table[i]
+			view = linalg.inverse(
+				linalg.matrix4_translate(transform.position) *
+				linalg.matrix4_from_quaternion(transform.rotation),
+			)
+			proj = linalg.matrix4_perspective_f32(
+				math.to_radians_f32(cam_table[i].fov),
+				cam_table[i].aspect,
+				cam_table[i].near,
+				cam_table[i].far,
+			)
+
+			set_shader_mat4(&application.default_shader, "u_view", &view)
+			set_shader_mat4(&application.default_shader, "u_proj", &proj)
+
+			for mesh_arch in query(has(TransformComponent), has(MeshRendererComponent)) {
+				mesh_table := get_table(mesh_arch, MeshRendererComponent)
+				mesh_trf_table := get_table(mesh_arch, TransformComponent)
+				for e2, i in mesh_arch.entities {
+					mesh_trf := mesh_trf_table[i]
+					world = linalg.matrix4_from_trs(
+						mesh_trf.position,
+						mesh_trf.rotation,
+						mesh_trf.scale,
+					)
+					set_shader_mat4(&application.default_shader, "u_world", &world)
+					draw_mesh(mesh_table[i].mesh)
+				}
+			}
+		}
+	}
+
 	glfw.SwapBuffers(application.window.handle)
 	application.input.mouse_delta = 0
 	application.delta_time = cast(f32)glfw.GetTime() - application.time
@@ -116,6 +205,44 @@ frame_end :: proc() {
 	application.input.scroll = 0
 	application.input.horizontal_scroll = 0
 }
+
+push_layer :: proc(
+	layer: ^$T,
+	on_attach: proc(_: ^T),
+	on_update: proc(_: ^T),
+	on_detach: proc(_: ^T),
+) -> bool {
+	if T in application.layer_stack {
+		return false
+	}
+	layer := map_insert(
+		&application.layer_stack,
+		T,
+		Layer {
+			LayerProcs {
+				cast(proc(_: rawptr))on_attach,
+				cast(proc(_: rawptr))on_update,
+				cast(proc(_: rawptr))on_detach,
+			},
+			cast(rawptr)layer,
+		},
+	)
+	layer.procs.on_attach(layer.data)
+	return true
+}
+
+pop_layer :: proc(T: typeid) -> bool {
+	layer, ok := application.layer_stack[T]
+	if !ok do return false
+	if layer.procs.on_detach != nil do layer.procs.on_detach(layer.data)
+	delete_key(&application.layer_stack, T)
+	return true
+}
+
+// push_layer :: proc(layer_procs: LayerProcs, layer_data: ^$T) {
+// 	layer := map_insert(&application.layer_stack, T, Layer{layer_procs, cast(rawptr)layer_data})
+// 	layer.procs.on_attach(layer.user_data)
+// }
 
 close :: proc() {
 	glfw.SetWindowShouldClose(application.window.handle, true)

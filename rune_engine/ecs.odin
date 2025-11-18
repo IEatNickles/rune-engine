@@ -2,6 +2,7 @@
 
 package rune_engine
 
+import "core:fmt"
 import ygg "deps/YggECS/src"
 
 Entity :: ygg.EntityID
