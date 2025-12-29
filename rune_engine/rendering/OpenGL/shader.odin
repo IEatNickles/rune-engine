@@ -135,15 +135,21 @@ link_shader :: proc(prog: ^rendering.Shader) -> (error: string, ok: bool) {
 		map_insert(&uniforms, prog^, map[string]ShaderUniform{})
 		for i in 0 ..< u32(uniform_count) {
 			gl.GetActiveUniform(cast(u32)prog^, i, buf_len, &len, &size, &type, name)
+			loc := gl.GetUniformLocation(cast(u32)prog^, cstring(name))
+			if loc < 0 do continue
 			map_insert(
 				&uniforms[prog^],
 				strings.clone_from_ptr(name, int(len)),
-				ShaderUniform{i32(i), cast(ShaderUniformType)type, u32(size)},
+				ShaderUniform{loc, cast(ShaderUniformType)type, u32(size)},
 			)
 		}
 	}
 
 	return
+}
+
+delete_shader :: proc(shader: ^rendering.Shader) {
+	gl.DeleteProgram(cast(u32)shader^)
 }
 
 bind_shader :: proc(prog: ^rendering.Shader) {
@@ -618,6 +624,7 @@ when ODIN_DEBUG {
 			info_log := make([^]u8, log_length)
 			log_proc(id, log_length, &log_length, info_log, #location())
 			error = strings.clone_from_ptr(info_log, cast(int)log_length, context.temp_allocator)
+			fmt.println(error)
 			return
 		}
 		ok = true

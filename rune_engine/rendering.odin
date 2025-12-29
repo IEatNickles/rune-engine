@@ -3,6 +3,8 @@
 
 package rune_engine
 
+import "core:math/linalg"
+
 import "core:fmt"
 import "core:log"
 
@@ -115,6 +117,10 @@ set_shader_mat4 :: proc(prog: ^rendering.Shader, name: string, value: ^matrix[4,
 	case .Metal:
 		log.panic("Metal is not supported")
 	}
+}
+
+delete_shader :: proc(shader: ^rendering.Shader) {
+	OpenGL.delete_shader(shader)
 }
 
 load_texture :: proc(
@@ -259,6 +265,64 @@ draw_mesh :: proc(mesh: rendering.Mesh) {
 	case .Metal:
 		log.panic("Metal is not supported")
 	}
+}
+
+create_framebuffer :: proc() -> rendering.Framebuffer {
+	switch render_api {
+	case .OpenGL:
+		return OpenGL.create_framebuffer()
+	case .DirectX11:
+		log.panic("DirectX11 is not supported")
+	case .DirectX12:
+		log.panic("DirectX12 is not supported")
+	case .Vulkan:
+		log.panic("Vulkan is not supported")
+	case .Metal:
+		log.panic("Metal is not supported")
+	}
+	return {}
+}
+
+framebuffer_attach_texture :: proc(fb: ^rendering.Framebuffer) -> rendering.Texture {
+	switch render_api {
+	case .OpenGL:
+		return OpenGL.framebuffer_attach_texture(fb)
+	case .DirectX11:
+		log.panic("DirectX11 is not supported")
+	case .DirectX12:
+		log.panic("DirectX12 is not supported")
+	case .Vulkan:
+		log.panic("Vulkan is not supported")
+	case .Metal:
+		log.panic("Metal is not supported")
+	}
+	return {}
+}
+
+bind_framebuffer :: proc(fb: ^rendering.Framebuffer) {
+	switch render_api {
+	case .OpenGL:
+		OpenGL.bind_framebuffer(fb)
+	case .DirectX11:
+		log.panic("DirectX11 is not supported")
+	case .DirectX12:
+		log.panic("DirectX12 is not supported")
+	case .Vulkan:
+		log.panic("Vulkan is not supported")
+	case .Metal:
+		log.panic("Metal is not supported")
+	}
+}
+
+@(private)
+render_data: struct {
+	view_projection: matrix[4, 4]f32,
+	ubo:             rendering.Buffer,
+}
+
+begin_scene :: proc(view, projection: matrix[4, 4]f32) {
+	render_data.view_projection = projection * linalg.inverse(view)
+	OpenGL.buffer_set_sub_data_ptr(render_data.ubo, 0, &render_data.view_projection, 1)
 }
 
 TextureFilter :: enum {

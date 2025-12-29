@@ -15,6 +15,8 @@ import "rendering"
 
 import "input"
 
+import "rendering/OpenGL"
+
 LayerProcs :: struct {
 	on_attach: proc(data: rawptr),
 	on_update: proc(data: rawptr),
@@ -42,11 +44,17 @@ application: struct {
 	},
 	time:           f32,
 	delta_time:     f32,
-	current_scene:  ^Scene,
 	log_file:       os.Handle,
 	default_shader: rendering.Shader,
 	layer_stack:    map[typeid]Layer,
+	layers_to_pop:  [dynamic]typeid,
+	layers_to_push: [dynamic]PushLayer,
 } = {}
+
+PushLayer :: struct {
+	type:  typeid,
+	procs: LayerProcs,
+}
 
 debug_callback :: proc "c" (
 	source, type, id, severity: u32,
@@ -64,13 +72,14 @@ debug_callback :: proc "c" (
 	case gl.DEBUG_SEVERITY_HIGH:
 		severity_str = "HIGH"
 	case gl.DEBUG_SEVERITY_NOTIFICATION:
-		severity_str = "NOTIFICATION"
+		return
+	// severity_str = "NOTIFICATION"
 	}
 
 	fmt.printfln("{} [{}] {}", type, severity_str, message)
 }
 
-init :: proc(title: string) {
+init :: proc(title: string, width: uint = 1280, height: uint = 720) {
 	err: os.Error
 	application.log_file, err = os.open("log/log.txt", os.O_WRONLY | os.O_APPEND | os.O_CREATE)
 	if err != .Exist {
@@ -78,10 +87,11 @@ init :: proc(title: string) {
 	}
 	context.logger = log.create_file_logger(application.log_file)
 
-	application.window = window_create(1280, 720, title)
+	application.window = window_create(width, height, title)
 	glfw.MakeContextCurrent(application.window.handle)
 
 	gl.load_up_to(4, 6, glfw.gl_set_proc_address)
+	render_data.ubo = OpenGL.create_uniform_buffer(size_of(matrix[4, 4]f32))
 
 	gl.Enable(gl.CULL_FACE)
 	gl.Enable(gl.DEPTH_TEST)
@@ -98,16 +108,21 @@ terminate :: proc() {
 		pop_layer(t)
 	}
 
+	delete_shader(&application.default_shader)
+
 	glfw.Terminate()
 	os.close(application.log_file)
 }
 
-load_scene :: proc(scene: ^Scene) {
-	application.current_scene = scene
-}
-
 is_running :: proc() -> bool {
 	return application.running
+}
+
+run :: proc() {
+	for is_running() {
+		frame_start()
+		frame_end()
+	}
 }
 
 // @(private)
@@ -132,7 +147,7 @@ frame_start :: proc() {
 	glfw.PollEvents()
 
 	for t, l in application.layer_stack {
-		l.procs.on_update(l.data)
+		if l.procs.on_update != nil do l.procs.on_update(l.data)
 	}
 	// event: Event
 	// for poll_event(&event) {
@@ -160,61 +175,37 @@ frame_start :: proc() {
 }
 
 frame_end :: proc() {
-	bind_shader(&application.default_shader)
-	world, view, proj: matrix[4, 4]f32
-	for cam_arch in query(has(TransformComponent), has(CameraComponent)) {
-		cam_table := get_table(cam_arch, CameraComponent)
-		cam_trf_table := get_table(cam_arch, TransformComponent)
-		for e, i in cam_arch.entities {
-			transform := &cam_trf_table[i]
-			view = linalg.inverse(
-				linalg.matrix4_translate(transform.position) *
-				linalg.matrix4_from_quaternion(transform.rotation),
-			)
-			proj = linalg.matrix4_perspective_f32(
-				math.to_radians_f32(cam_table[i].fov),
-				cam_table[i].aspect,
-				cam_table[i].near,
-				cam_table[i].far,
-			)
-
-			set_shader_mat4(&application.default_shader, "u_view", &view)
-			set_shader_mat4(&application.default_shader, "u_proj", &proj)
-
-			for mesh_arch in query(has(TransformComponent), has(MeshRendererComponent)) {
-				mesh_table := get_table(mesh_arch, MeshRendererComponent)
-				mesh_trf_table := get_table(mesh_arch, TransformComponent)
-				for e2, i in mesh_arch.entities {
-					mesh_trf := mesh_trf_table[i]
-					world = linalg.matrix4_from_trs(
-						mesh_trf.position,
-						mesh_trf.rotation,
-						mesh_trf.scale,
-					)
-					set_shader_mat4(&application.default_shader, "u_world", &world)
-					draw_mesh(mesh_table[i].mesh)
-				}
-			}
-		}
-	}
-
 	glfw.SwapBuffers(application.window.handle)
 	application.input.mouse_delta = 0
 	application.delta_time = cast(f32)glfw.GetTime() - application.time
 	application.time = cast(f32)glfw.GetTime()
 	application.input.scroll = 0
 	application.input.horizontal_scroll = 0
+
+	for layer in application.layers_to_pop {
+		pop_layer(layer)
+	}
+	clear(&application.layers_to_pop)
+	for layer in application.layers_to_push {
+		push_layer_raw(
+			layer.type,
+			layer.procs.on_attach,
+			layer.procs.on_update,
+			layer.procs.on_detach,
+		)
+	}
+	clear(&application.layers_to_push)
 }
 
-push_layer :: proc(
-	layer: ^$T,
-	on_attach: proc(_: ^T),
-	on_update: proc(_: ^T),
-	on_detach: proc(_: ^T),
+push_layer_raw :: proc(
+	T: typeid,
+	on_attach: proc(_: rawptr),
+	on_update: proc(_: rawptr),
+	on_detach: proc(_: rawptr),
 ) -> bool {
-	if T in application.layer_stack {
-		return false
-	}
+	if T in application.layer_stack do return false
+	data, err := make([^]byte, size_of(T))
+	if err != nil do fmt.println(err)
 	layer := map_insert(
 		&application.layer_stack,
 		T,
@@ -224,10 +215,35 @@ push_layer :: proc(
 				cast(proc(_: rawptr))on_update,
 				cast(proc(_: rawptr))on_detach,
 			},
-			cast(rawptr)layer,
+			cast(rawptr)data,
 		},
 	)
-	layer.procs.on_attach(layer.data)
+	if on_attach != nil do layer.procs.on_attach(layer.data)
+	return true
+}
+
+push_layer :: proc(
+	$T: typeid,
+	on_attach: proc(_: ^T),
+	on_update: proc(_: ^T),
+	on_detach: proc(_: ^T),
+) -> bool {
+	if T in application.layer_stack do return false
+	data, err := new(T)
+	if err != nil do fmt.println(err)
+	layer := map_insert(
+		&application.layer_stack,
+		T,
+		Layer {
+			LayerProcs {
+				cast(proc(_: rawptr))on_attach,
+				cast(proc(_: rawptr))on_update,
+				cast(proc(_: rawptr))on_detach,
+			},
+			cast(rawptr)data,
+		},
+	)
+	if on_attach != nil do layer.procs.on_attach(layer.data)
 	return true
 }
 
@@ -237,6 +253,27 @@ pop_layer :: proc(T: typeid) -> bool {
 	if layer.procs.on_detach != nil do layer.procs.on_detach(layer.data)
 	delete_key(&application.layer_stack, T)
 	return true
+}
+
+transition_layer :: proc(
+	$A: typeid,
+	$B: typeid,
+	on_attach: proc(_: ^B),
+	on_update: proc(_: ^B),
+	on_detach: proc(_: ^B),
+) {
+	append(&application.layers_to_pop, A)
+	append(
+		&application.layers_to_push,
+		PushLayer {
+			B,
+			{
+				cast(proc(_: rawptr))on_attach,
+				cast(proc(_: rawptr))on_update,
+				cast(proc(_: rawptr))on_detach,
+			},
+		},
+	)
 }
 
 // push_layer :: proc(layer_procs: LayerProcs, layer_data: ^$T) {
@@ -255,6 +292,10 @@ get_time :: proc() -> f32 {
 
 get_delta_time :: proc() -> f32 {
 	return cast(f32)glfw.GetTime() - application.time
+}
+
+get_window :: proc() -> Window {
+	return application.window
 }
 
 setup_glfw_callbacks :: proc() {

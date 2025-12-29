@@ -2,7 +2,14 @@ package rune_engine
 
 import "rendering"
 
+import "core:math/rand"
+
 import jph "deps/joltc-odin/"
+
+Uuid :: distinct u64
+next_uuid :: proc() -> Uuid {
+	return cast(Uuid)rand.uint64()
+}
 
 TransformComponent :: struct {
 	position: [3]f32,

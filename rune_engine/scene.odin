@@ -2,6 +2,7 @@ package rune_engine
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 import jph "deps/joltc-odin"
 
@@ -112,10 +113,10 @@ scene_create :: proc(name: string) -> ^Scene {
 	return scene
 }
 
-scene_start :: proc(scene: ^Scene) {
-	for arch in query(has(RigidBodyComponent), has(TransformComponent)) {
-		transform_table := get_table(arch, TransformComponent)
-		rigidbody_table := get_table(arch, RigidBodyComponent)
+start_scene :: proc(self: ^Scene) {
+	for arch in query(self, has(RigidBodyComponent), has(TransformComponent)) {
+		transform_table := get_table(self, arch, TransformComponent)
+		rigidbody_table := get_table(self, arch, RigidBodyComponent)
 		for e, i in arch.entities {
 			tr := transform_table[i]
 			rb := &rigidbody_table[i]
@@ -189,31 +190,67 @@ scene_start :: proc(scene: ^Scene) {
 			jph.BodyCreationSettings_SetIsSensor(settings, is_trigger)
 
 			rb.body_id = jph.BodyInterface_CreateAndAddBody(
-				scene.physics.body_interface,
+				self.physics.body_interface,
 				settings,
 				.Activate,
 			)
 		}
 	}
 
-	jph.PhysicsSystem_OptimizeBroadPhase(scene.physics.system)
+	jph.PhysicsSystem_OptimizeBroadPhase(self.physics.system)
 }
 
-scene_update :: proc(scene: ^Scene) {
-	jph.PhysicsSystem_Update(scene.physics.system, 0.0167, 1, scene.physics.job_system)
-	for arch in query(has(RigidBodyComponent), has(TransformComponent)) {
-		transform_table := get_table(arch, TransformComponent)
-		rigidbody_table := get_table(arch, RigidBodyComponent)
+update_scene :: proc(self: ^Scene) {
+	jph.PhysicsSystem_Update(self.physics.system, 0.0167, 1, self.physics.job_system)
+	for arch in query(self, has(RigidBodyComponent), has(TransformComponent)) {
+		transform_table := get_table(self, arch, TransformComponent)
+		rigidbody_table := get_table(self, arch, RigidBodyComponent)
 		for e, i in arch.entities {
 			tr := &transform_table[i]
 			rb := rigidbody_table[i]
 
 			jph.BodyInterface_GetPositionAndRotation(
-				scene.physics.body_interface,
+				self.physics.body_interface,
 				rb.body_id,
 				&tr.position,
 				&tr.rotation,
 			)
 		}
 	}
+}
+
+draw_scene :: proc(self: ^Scene) {
+	bind_shader(&application.default_shader)
+	world, view, proj: matrix[4, 4]f32
+	// for cam_arch in query(self, has(TransformComponent), has(CameraComponent)) {
+	// 	cam_table := get_table(self, cam_arch, CameraComponent)
+	// 	cam_trf_table := get_table(self, cam_arch, TransformComponent)
+	// 	for e, i in cam_arch.entities {
+	// 		transform := &cam_trf_table[i]
+	// 		view = linalg.inverse(
+	// 			linalg.matrix4_translate(transform.position) *
+	// 			linalg.matrix4_from_quaternion(transform.rotation),
+	// 		)
+	// 		proj = linalg.matrix4_perspective_f32(
+	// 			math.to_radians_f32(cam_table[i].fov),
+	// 			cam_table[i].aspect,
+	// 			cam_table[i].near,
+	// 			cam_table[i].far,
+	// 		)
+
+	// 		set_shader_mat4(&application.default_shader, "u_view", &view)
+	// 		set_shader_mat4(&application.default_shader, "u_proj", &proj)
+
+	for mesh_arch in query(self, has(TransformComponent), has(MeshRendererComponent)) {
+		mesh_table := get_table(self, mesh_arch, MeshRendererComponent)
+		mesh_trf_table := get_table(self, mesh_arch, TransformComponent)
+		for e2, i in mesh_arch.entities {
+			mesh_trf := mesh_trf_table[i]
+			world = linalg.matrix4_from_trs(mesh_trf.position, mesh_trf.rotation, mesh_trf.scale)
+			set_shader_mat4(&application.default_shader, "u_world", &world)
+			draw_mesh(mesh_table[i].mesh)
+		}
+	}
+	// 	}
+	// }
 }

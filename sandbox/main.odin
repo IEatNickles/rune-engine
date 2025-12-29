@@ -3,23 +3,26 @@ package sandbox
 import "../rune_engine/"
 import "../rune_engine/rendering/"
 import "base:runtime"
-import "core:encoding/json"
 import "core:math"
 import "core:math/linalg"
+import "core:mem"
+import "core:os/os2"
 import "core:reflect"
-import "core:strings"
 
 import gl "vendor:OpenGL"
 
 import "core:fmt"
 
+import "core:encoding/base64"
+import "core:encoding/cbor"
+import "core:encoding/hex"
+import "core:encoding/json"
+
 GameLayer :: struct {
 	e:       rune_engine.Entity,
 	cam_rot: [2]f32,
 	monky:   rune_engine.Model,
-}
-
-debug_callback :: proc "c" (source, type, id, severity, length, message, userparam: i32) {
+	scene:   ^rune_engine.Scene,
 }
 
 main :: proc() {
@@ -27,42 +30,49 @@ main :: proc() {
 	// name := reflect.struct_tag_get(reflect.Struct_Tag(info.tags[0]), "field")
 	// fmt.println(name)
 
+	j, e := json.parse(#load("./fart.json", []byte))
+
+	cbor_data, e2 := cbor.from_json(j)
+
+	cbor_file, err := os2.create("fart.cbor")
+	os2.write(cbor_file, transmute([]byte)cbor_data)
+
+	j, e2 = cbor.to_json(cbor_data)
+	d, e3 := json.marshal(j, json.Marshal_Options{pretty = true, spaces = 2, use_spaces = true})
+	fmt.println(string(d))
+
 	rune_engine.init("Rune Engine Demo")
 	defer rune_engine.terminate()
 
+	rune_engine.push_layer(
+		GameLayer,
+		game_layer_on_attach,
+		game_layer_on_update,
+		game_layer_on_detach,
+	)
+
+	rune_engine.run()
+}
+
+game_layer_on_attach :: proc(self: ^GameLayer) {
+	p := rune_engine.create_project("Fart", "/home/jdw/dev/rune-engine/sandbox")
+
+	self.scene = rune_engine.scene_create("New Scene")
 	rune_engine.set_clear_color({55 / 255.0, 180 / 255.0, 180 / 255.0, 1.0})
 	rune_engine.set_cursor_state(.LockedAndHidden)
 
-	scene := rune_engine.scene_create("New Scene")
-	rune_engine.load_scene(scene)
-
-	gler := GameLayer{}
-	rune_engine.push_layer(&gler, game_layer_on_attach, game_layer_on_update, game_layer_on_detach)
-
-	// prog := rune_engine.load_shader("assets/shaders/test.vs", "assets/shaders/test.fs")
-	// rune_engine.bind_shader(&prog)
+	self.monky = rune_engine.load_model_gltf("assets/models/moky.glb")
+	// defer rune_engine.destroy_model(&monky)
 
 	tex := rune_engine.load_texture("assets/textures/doodoo.png")
 	rune_engine.bind_texture(tex)
 
-	rune_engine.scene_start(scene)
-	for rune_engine.is_running() {
-		rune_engine.frame_start()
-
-		rune_engine.frame_end()
-		rune_engine.scene_update(scene)
-	}
-}
-
-game_layer_on_attach :: proc(self: ^GameLayer) {
-	self.monky = rune_engine.load_model_gltf("assets/models/moky.glb")
-	// defer rune_engine.destroy_model(&monky)
-
-	self.e = rune_engine.create_entity()
-	e2 := rune_engine.create_entity()
-	e3 := rune_engine.create_entity()
-	e4 := rune_engine.create_entity()
+	self.e = rune_engine.create_entity(self.scene)
+	e2 := rune_engine.create_entity(self.scene)
+	e3 := rune_engine.create_entity(self.scene)
+	e4 := rune_engine.create_entity(self.scene)
 	rune_engine.add_component(
+		self.scene,
 		self.e,
 		rune_engine.TransformComponent {
 			{0, 0, 3},
@@ -70,18 +80,33 @@ game_layer_on_attach :: proc(self: ^GameLayer) {
 			{1, 1, 1},
 		},
 	)
-	rune_engine.add_component(self.e, rune_engine.CameraComponent{110, 16.0 / 9.0, 0.1, 100.0})
 	rune_engine.add_component(
+		self.scene,
+		self.e,
+		rune_engine.CameraComponent{110, 16.0 / 9.0, 0.1, 100.0},
+	)
+	rune_engine.add_component(
+		self.scene,
 		e2,
 		rune_engine.TransformComponent{{0, 0, 0}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1}},
 	)
-	rune_engine.add_component(e2, rune_engine.MeshRendererComponent{self.monky.meshes[0]})
 	rune_engine.add_component(
+		self.scene,
+		e2,
+		rune_engine.MeshRendererComponent{self.monky.meshes[0]},
+	)
+	rune_engine.add_component(
+		self.scene,
 		e3,
 		rune_engine.TransformComponent{{0, 3, 0}, linalg.QUATERNIONF32_IDENTITY, {1, 1, 1}},
 	)
-	rune_engine.add_component(e3, rune_engine.MeshRendererComponent{self.monky.meshes[0]})
 	rune_engine.add_component(
+		self.scene,
+		e3,
+		rune_engine.MeshRendererComponent{self.monky.meshes[0]},
+	)
+	rune_engine.add_component(
+		self.scene,
 		e3,
 		rune_engine.RigidBodyComponent {
 			type = .Dynamic,
@@ -91,6 +116,7 @@ game_layer_on_attach :: proc(self: ^GameLayer) {
 	)
 
 	rune_engine.add_component(
+		self.scene,
 		e4,
 		rune_engine.TransformComponent {
 			{0, -3, 0},
@@ -99,6 +125,7 @@ game_layer_on_attach :: proc(self: ^GameLayer) {
 		},
 	)
 	rune_engine.add_component(
+		self.scene,
 		e4,
 		rune_engine.RigidBodyComponent {
 			type = .Static,
@@ -107,6 +134,8 @@ game_layer_on_attach :: proc(self: ^GameLayer) {
 			shape = rune_engine.PlaneShape{normal = {0, 1, 0}},
 		},
 	)
+
+	rune_engine.start_scene(self.scene)
 }
 
 game_layer_on_update :: proc(self: ^GameLayer) {
@@ -115,7 +144,7 @@ game_layer_on_update :: proc(self: ^GameLayer) {
 	}
 
 	{
-		cam_trf := rune_engine.get_component(self.e, rune_engine.TransformComponent)
+		cam_trf := rune_engine.get_component(self.scene, self.e, rune_engine.TransformComponent)
 		fw := linalg.quaternion128_mul_vector3(cam_trf.rotation, [3]f32{0, 0, 1})
 		rg := linalg.quaternion128_mul_vector3(cam_trf.rotation, [3]f32{1, 0, 0})
 		speed: f32 = 0.1
@@ -144,7 +173,11 @@ game_layer_on_update :: proc(self: ^GameLayer) {
 			math.to_radians(self.cam_rot.y),
 			math.to_radians(self.cam_rot.x),
 			0,
-		)}
+		)
+	}
+
+	rune_engine.update_scene(self.scene)
+	rune_engine.draw_scene(self.scene)
 }
 
 game_layer_on_detach :: proc(self: ^GameLayer) {

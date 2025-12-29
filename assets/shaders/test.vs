@@ -6,9 +6,10 @@ layout(location=2) in vec2 a_tex;
 layout(location=3) in vec4 a_col;
 layout(location=4) in vec4 a_tan;
 
+layout(std140, binding=0) uniform Camera {
+  mat4 u_viewproj;
+};
 uniform mat4 u_world;
-uniform mat4 u_view;
-uniform mat4 u_proj;
 
 out vec3 v_nrm;
 out vec2 v_tex;
@@ -16,5 +17,5 @@ out vec2 v_tex;
 void main() {
   v_nrm = a_nrm * inverse(mat3(u_world));
   v_tex = a_tex;
-  gl_Position = u_proj * u_view * u_world * vec4(a_pos, 1.0);
+  gl_Position = u_viewproj * u_world * vec4(a_pos, 1.0);
 }
