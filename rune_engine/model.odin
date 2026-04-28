@@ -4,10 +4,17 @@ import "core:fmt"
 import "core:log"
 import "vendor:cgltf"
 
-import "rendering"
+import "renderer"
+
+Mesh :: struct {
+  vertex_buffers: [5]renderer.Buffer,
+  index_buffer:   renderer.Buffer,
+  transform:      matrix[4,4]f32,
+  index_count:    int,
+}
 
 Model :: struct {
-	meshes: []rendering.Mesh,
+	meshes: []Mesh,
 }
 
 load_model_gltf :: proc(path: string) -> Model {
@@ -26,7 +33,7 @@ load_model_gltf :: proc(path: string) -> Model {
 		log.error(res)
 	}
 
-	meshes: [dynamic]rendering.Mesh
+	meshes: [dynamic]Mesh
 	for node in data.nodes {
 		vertex_count: uint
 		index_count: uint
@@ -159,4 +166,68 @@ load_model_gltf :: proc(path: string) -> Model {
 	}
 
 	return Model{meshes[:]}
+}
+
+destroy_model :: proc(model: ^Model) {
+  for m in model.meshes {
+    renderer.destroy_buffer(&application.renderer, m.vertex_buffers[0])
+    renderer.destroy_buffer(&application.renderer, m.vertex_buffers[1])
+    renderer.destroy_buffer(&application.renderer, m.vertex_buffers[2])
+    renderer.destroy_buffer(&application.renderer, m.vertex_buffers[3])
+    renderer.destroy_buffer(&application.renderer, m.vertex_buffers[4])
+    renderer.destroy_buffer(&application.renderer, m.index_buffer)
+  }
+}
+
+draw_model :: proc(model: ^Model) {
+  for m in model.meshes {
+    draw_mesh(m)
+  }
+}
+
+create_mesh :: proc(
+	positions, normals, texcoords, colors, tangents: []f32,
+	indices: []u16,
+	transform: matrix[4, 4]f32,
+) -> (mesh: Mesh) {
+  mesh.vertex_buffers[0] = renderer.create_buffer(&application.renderer, &{
+    usage = { .Vertex_Buffer },
+    data = raw_data(positions),
+    size = len(positions) * size_of(f32),
+  })
+  mesh.vertex_buffers[1] = renderer.create_buffer(&application.renderer, &{
+    usage = { .Vertex_Buffer },
+    data = raw_data(normals),
+    size = len(normals) * size_of(f32),
+  })
+  mesh.vertex_buffers[2] = renderer.create_buffer(&application.renderer, &{
+    usage = { .Vertex_Buffer },
+    data = raw_data(texcoords),
+    size = len(texcoords) * size_of(f32),
+  })
+  mesh.vertex_buffers[3] = renderer.create_buffer(&application.renderer, &{
+    usage = { .Vertex_Buffer },
+    data = raw_data(colors),
+    size = len(colors) * size_of(f32),
+  })
+  mesh.vertex_buffers[4] = renderer.create_buffer(&application.renderer, &{
+    usage = { .Vertex_Buffer },
+    data = raw_data(tangents),
+    size = len(tangents) * size_of(f32),
+  })
+  mesh.index_buffer = renderer.create_buffer(&application.renderer, &{
+    usage = { .Index_Buffer },
+    data = raw_data(indices),
+    size = len(indices) * size_of(u16),
+  })
+  mesh.transform = transform
+  mesh.index_count = len(indices)
+	return
+}
+
+draw_mesh :: proc(mesh: Mesh) {
+  vbs := mesh.vertex_buffers
+  renderer.bind_vertex_buffers(&application.renderer, vbs[:])
+  renderer.bind_index_buffer(&application.renderer, mesh.index_buffer)
+  renderer.draw(&application.renderer, mesh.index_count)
 }

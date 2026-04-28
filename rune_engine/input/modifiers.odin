@@ -1,11 +1,11 @@
 package input
 
 Modifier :: enum {
-	ModShift,
-	ModControl,
-	ModAlt,
-	ModSuper,
-	ModCapsLock,
-	ModNumLock,
+	Shift,
+	Control,
+	Alt,
+	Super,
+	CapsLock,
+	NumLock,
 }
 Modifiers :: bit_set[Modifier]

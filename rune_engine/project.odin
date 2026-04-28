@@ -1,7 +1,7 @@
 package rune_engine
 
 import "core:fmt"
-import os "core:os/os2"
+import "core:os"
 import "core:strings"
 
 Project :: struct {

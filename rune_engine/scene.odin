@@ -2,9 +2,10 @@ package rune_engine
 
 import "base:runtime"
 import "core:fmt"
-import "core:math"
 import "core:math/linalg"
 import jph "deps/joltc-odin"
+
+import "renderer"
 
 Scene :: struct {
 	name:      string,
@@ -219,38 +220,42 @@ update_scene :: proc(self: ^Scene) {
 	}
 }
 
+current_camera: Scene_Shader_Data
+Scene_Shader_Data :: struct #align(16) {
+  projection: matrix[4,4]f32,
+  view:       matrix[4,4]f32,
+  world:      matrix[4,4]f32,
+}
+
+begin_scene :: proc(view, projection: matrix[4, 4]f32) {
+  current_camera.view = view
+  current_camera.projection = projection
+}
+
 draw_scene :: proc(self: ^Scene) {
-	bind_shader(&application.default_shader)
-	world, view, proj: matrix[4, 4]f32
-	// for cam_arch in query(self, has(TransformComponent), has(CameraComponent)) {
-	// 	cam_table := get_table(self, cam_arch, CameraComponent)
-	// 	cam_trf_table := get_table(self, cam_arch, TransformComponent)
-	// 	for e, i in cam_arch.entities {
-	// 		transform := &cam_trf_table[i]
-	// 		view = linalg.inverse(
-	// 			linalg.matrix4_translate(transform.position) *
-	// 			linalg.matrix4_from_quaternion(transform.rotation),
-	// 		)
-	// 		proj = linalg.matrix4_perspective_f32(
-	// 			math.to_radians_f32(cam_table[i].fov),
-	// 			cam_table[i].aspect,
-	// 			cam_table[i].near,
-	// 			cam_table[i].far,
-	// 		)
+	renderer.bind_pipeline(&application.renderer, application.default_pipeline)
+	// world: matrix[4, 4]f32
 
-	// 		set_shader_mat4(&application.default_shader, "u_view", &view)
-	// 		set_shader_mat4(&application.default_shader, "u_proj", &proj)
-
-	for mesh_arch in query(self, has(TransformComponent), has(MeshRendererComponent)) {
-		mesh_table := get_table(self, mesh_arch, MeshRendererComponent)
-		mesh_trf_table := get_table(self, mesh_arch, TransformComponent)
-		for e2, i in mesh_arch.entities {
-			mesh_trf := mesh_trf_table[i]
-			world = linalg.matrix4_from_trs(mesh_trf.position, mesh_trf.rotation, mesh_trf.scale)
-			set_shader_mat4(&application.default_shader, "u_world", &world)
-			draw_mesh(mesh_table[i].mesh)
-		}
-	}
-	// 	}
-	// }
+  // for cam_arch in query(self, has(CameraComponent), has(TransformComponent)) {
+  //   cam_table := get_table(self, cam_arch, CameraComponent)
+  //   cam_trf_table := get_table(self, cam_arch, TransformComponent)
+  //   cam := cam_table[0]
+  //   cam_trf := cam_trf_table[0]
+  //   proj := linalg.matrix4_perspective(math.to_radians(cam.fov), cam.aspect, cam.near, cam.far)
+  //   fw := linalg.mul(cam_trf.rotation, [3]f32{0, 0, 1})
+  //   view := linalg.matrix4_look_at(cam_trf.position, cam_trf.position - fw, [3]f32{0, 1, 0})
+  //   set_shader_mat4(application.default_shader, "scene.u_proj", &proj)
+  //   set_shader_mat4(application.default_shader, "scene.u_view", &view)
+    for mesh_arch in query(self, has(TransformComponent), has(MeshRendererComponent)) {
+      mesh_table := get_table(self, mesh_arch, MeshRendererComponent)
+      mesh_trf_table := get_table(self, mesh_arch, TransformComponent)
+      for e2, i in mesh_arch.entities {
+        mesh_trf := mesh_trf_table[i]
+        current_camera.world = linalg.matrix4_from_trs(mesh_trf.position, mesh_trf.rotation, mesh_trf.scale)
+        // set_shader_mat4(application.default_shader, "scene.u_world", &world)
+        renderer.shader_set_push_constants(&application.renderer, application.default_shader, "scene", &current_camera)
+        draw_mesh(mesh_table[i].mesh)
+      }
+    }
+  // }
 }

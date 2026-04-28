@@ -1,0 +1,9 @@
+{
+  "version": 0,
+  "name": "dont_mess_wit_me",
+  "path": "./example_project/assets/dont_mess_wit_me.jpg",
+  "type": 0,
+  "data": {
+    "mip_level": 8
+  }
+}

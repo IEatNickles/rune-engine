@@ -1,7 +1,5 @@
 package rune_engine
 
-import "rendering"
-
 import "core:math/rand"
 
 import jph "deps/joltc-odin/"
@@ -18,13 +16,14 @@ TransformComponent :: struct {
 }
 
 CameraComponent :: struct {
+	main:      bool,
 	fov:       f32,
 	aspect:    f32,
 	near, far: f32,
 }
 
 MeshRendererComponent :: struct {
-	mesh: rendering.Mesh,
+	mesh: Mesh,
 }
 
 BodyType :: enum {

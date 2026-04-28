@@ -1,0 +1,55 @@
+{
+  textures : {
+    doodoo : {
+      version : 0,
+      path : "assets/doodoo.png",
+      data : {}
+    },
+    dont_mess_wit_me : {
+      version : 0,
+      path : "assets/dont_mess_wit_me.jpg",
+      data : {}
+    }
+  },
+  shaders : {
+    test_vert : {
+      version : 0,
+      path : "assets/test.vs",
+      data : {}
+    },
+    test_frag : {
+      version : 0,
+      path : "assets/test.fs",
+      data : {}
+    },
+    this_guy : {
+      version : 0,
+      path : "assets/otherstuff/thisguy.txt",
+      data : {}
+    },
+    stinks : {
+      version : 0,
+      path : "assets/otherstuff/strinks.txt",
+      data : {}
+    },
+    over_here : {
+      version : 0,
+      path : "assets/otherstuff/nested/overhere.txt",
+      data : {}
+    },
+    some_asset : {
+      version : 0,
+      path : "assets/stuff/some_asset.txt",
+      data : {}
+    }
+  },
+  materials : {},
+  meshes : {},
+  models : {
+    moky : {
+      version : 0,
+      path : "assets/moky.glb",
+      data : {}
+    }
+  }
+}

@@ -1,5 +1,7 @@
 package editor
 
+import "vendor:glfw"
+
 import imgui "deps/odin-imgui"
 import "deps/odin-imgui/imgui_impl_glfw"
 import "deps/odin-imgui/imgui_impl_opengl3"
