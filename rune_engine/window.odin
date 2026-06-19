@@ -5,27 +5,14 @@ import "base:runtime"
 import "core:strings"
 
 import "vendor:glfw"
-import gl "vendor:OpenGL"
-import vk "vendor:vulkan"
 
 import "renderer"
 
-OpenGL_Window :: struct {
-}
-
-Vulkan_Window :: struct {
-  swapchain: vk.SwapchainKHR
-}
-
 Window :: struct {
-	handle: glfw.WindowHandle,
-  backend: union {
-    OpenGL_Window,
-    Vulkan_Window,
-  }
+	handle:    glfw.WindowHandle,
 }
 
-window_create :: proc(width, height: u32, title: string, backend: renderer.RenderApiType) -> Window {
+window_create :: proc(width, height: u32, title: string, backend: renderer.Backend) -> Window {
 	glfw.Init()
   glfw.SetErrorCallback(proc "c" (error: i32, description: cstring) {
     context = runtime.default_context()
@@ -56,14 +43,18 @@ window_create :: proc(width, height: u32, title: string, backend: renderer.Rende
     glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 3)
     glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
     glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-  case .D3D11:
-  case .D3D12:
   case .Vulkan:
     glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
-  case .Metal:
+  case .Metal: unimplemented()
+  case .None: unimplemented()
+  case .Direct3D11: unimplemented()
+  case .Direct3D12: unimplemented()
+  case .WebGL: unimplemented()
+  case .WebGPU: unimplemented()
   }
 
-	handle := glfw.CreateWindow(
+  window: Window
+	window.handle = glfw.CreateWindow(
 		cast(i32)width,
 		cast(i32)height,
 		strings.clone_to_cstring(title, context.temp_allocator),
@@ -73,14 +64,25 @@ window_create :: proc(width, height: u32, title: string, backend: renderer.Rende
 
   switch backend {
   case .OpenGL:
-    glfw.MakeContextCurrent(handle)
-    gl.load_up_to(4, 3, glfw.gl_set_proc_address)
-  case .D3D11:
-  case .D3D12:
+    glfw.MakeContextCurrent(window.handle)
+    // glGetIntegerv: proc "c"(pname: u32, i: ^i32)
+    // glfw.gl_set_proc_address(&glGetIntegerv, "glGetIntegerv")
+    // major, minor: i32
+    // glGetIntegerv(gl.MAJOR_VERSION, &major)
+    // glGetIntegerv(gl.MAJOR_VERSION, &minor)
+    // gl.load_up_to(int(major), int(minor), glfw.gl_set_proc_address)
+    // version := int(major * 100 + minor * 10)
+    // if version >= 430 do window.features += { .OpenGL_Debug_Output, .OpenGL_Compute_Shader }
+    // if version >= 450 do window.features += { .OpenGL_DSA }
   case .Vulkan:
-  case .Metal:
+  case .Metal: unimplemented()
+  case .None: unimplemented()
+  case .Direct3D11: unimplemented()
+  case .Direct3D12: unimplemented()
+  case .WebGL: unimplemented()
+  case .WebGPU: unimplemented()
   }
 
 	free_all(context.temp_allocator)
-	return Window{handle = handle}
+	return window
 }

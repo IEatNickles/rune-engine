@@ -11,7 +11,7 @@ Buffer_State :: struct {
   target:   u32,
 }
 
-create_buffer :: proc(ctx: ^Context, info: ^rendering.Buffer_Create_Info) -> rendering.Buffer {
+create_buffer :: proc(info: ^rendering.Buffer_Create_Info) -> rendering.Buffer {
   buffer: u32
   target:   u32
   if .Vertex_Buffer in info.usage {
@@ -33,7 +33,7 @@ create_buffer :: proc(ctx: ^Context, info: ^rendering.Buffer_Create_Info) -> ren
   })
 }
 
-destroy_buffer :: proc(ctx: ^Context, buffer: rendering.Buffer) {
+destroy_buffer :: proc(buffer: rendering.Buffer) {
   state := handle_map.get(&ctx.buffers, buffer)
   handle_map.remove(&ctx.buffers, buffer)
   gl.DeleteBuffers(1, &state.id)

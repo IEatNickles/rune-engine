@@ -11,7 +11,7 @@ Texture_State :: struct {
   target: u32,
 }
 
-create_texture :: proc(ctx: ^Context, info: ^rendering.Texture_Create_Info) -> rendering.Texture {
+create_texture :: proc(info: ^rendering.Texture_Create_Info) -> rendering.Texture {
   texture: u32
   target := gl_texture_target(info.type)
   gl.GenTextures(1, &texture)
@@ -40,18 +40,18 @@ create_texture :: proc(ctx: ^Context, info: ^rendering.Texture_Create_Info) -> r
   return handle_map.add(&ctx.textures, state)
 }
 
-destroy_texture :: proc(ctx: ^Context, texture: rendering.Texture) {
+destroy_texture :: proc(texture: rendering.Texture) {
   state := handle_map.get(&ctx.textures, texture)
   handle_map.remove(&ctx.textures, texture)
   gl.DeleteTextures(1, &state.id)
 }
 
-get_texture_descriptor :: proc(ctx: ^Context, texture: rendering.Texture) -> u64 {
+get_texture_descriptor :: proc(texture: rendering.Texture) -> u64 {
   state := handle_map.get(&ctx.textures, texture)
   return cast(u64)state.id
 }
 
-bind_texture :: proc(ctx: ^Context, texture: rendering.Texture, unit: u32 = 0) {
+bind_texture :: proc(texture: rendering.Texture, unit: u32 = 0) {
   state := handle_map.get(&ctx.textures, texture)
   gl.ActiveTexture(gl.TEXTURE0 + unit)
 	gl.BindTexture(state.target, state.id)
@@ -63,6 +63,7 @@ gl_get_texture_internal_format :: proc(format: rendering.Color_Format) -> i32 {
   case .RG8:     return gl.RG8
   case .RGB8:    return gl.RGB8
   case .RGBA8:   return gl.RGBA8
+  case .BGRA8:   return gl.RGBA8
   case .Depth:   return gl.DEPTH_COMPONENT32F
   case .R16F:    return gl.R16F
   case .RG16F:   return gl.RG16F
@@ -83,6 +84,7 @@ gl_get_texture_format :: proc(format: rendering.Color_Format) -> u32 {
   case .RG8, .RG16F, .RG32F:     return gl.RG
   case .RGB8, .RGB16F, .RGB32F:    return gl.RGB
   case .RGBA8, .RGBA16F, .RGBA32F:   return gl.RGBA
+  case .BGRA8:   return gl.BGRA
   case .Depth:   return gl.DEPTH_COMPONENT
   case .Unknown: return gl.NONE
   }
@@ -95,6 +97,7 @@ gl_get_texture_pixel_type :: proc(format: rendering.Color_Format) -> u32 {
   case .RG8:     return gl.UNSIGNED_BYTE
   case .RGB8:    return gl.UNSIGNED_BYTE
   case .RGBA8:   return gl.UNSIGNED_BYTE
+  case .BGRA8:   return gl.UNSIGNED_BYTE
   case .Depth:   return gl.FLOAT
   case .R16F:    return gl.HALF_FLOAT
   case .RG16F:   return gl.HALF_FLOAT

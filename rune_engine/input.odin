@@ -39,12 +39,12 @@ import "input"
 set_cursor_state :: proc(state: input.CursorState) {
 	switch state {
 	case .Hidden:
-		glfw.SetInputMode(application.window.handle, glfw.CURSOR, glfw.CURSOR_HIDDEN)
+		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_HIDDEN)
 	case .Visible:
-		glfw.SetInputMode(application.window.handle, glfw.CURSOR, glfw.CURSOR_NORMAL)
+		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_NORMAL)
 	case .LockedAndHidden:
-		glfw.SetInputMode(application.window.handle, glfw.CURSOR, glfw.CURSOR_DISABLED)
+		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_DISABLED)
 	case .LockedAndVisible:
-		glfw.SetInputMode(application.window.handle, glfw.CURSOR, glfw.CURSOR_CAPTURED)
+		glfw.SetInputMode(application.window, glfw.CURSOR, glfw.CURSOR_CAPTURED)
 	}
 }

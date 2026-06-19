@@ -157,12 +157,15 @@ Image_Data :: struct {
 }
 Combined_Image_Sampler :: struct {
   using img: Image_Data,
+  combined_image_sampler: bool,
 }
 Storage_Image :: struct {
   using img: Image_Data,
+  storage_image: bool,
 }
 Sampled_Image :: struct {
   using img: Image_Data,
+  sampled_image: bool,
 }
 
 Shader_Member :: struct {

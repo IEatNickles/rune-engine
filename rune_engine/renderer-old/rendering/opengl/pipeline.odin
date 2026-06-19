@@ -13,7 +13,7 @@ Pipeline_State :: struct {
   shader:        rendering.Shader,
 }
 
-create_pipeline :: proc(ctx: ^Context, info: ^rendering.Pipeline_Create_Info) -> rendering.Pipeline {
+create_pipeline :: proc(info: ^rendering.Pipeline_Create_Info) -> rendering.Pipeline {
   state := Pipeline_State{
     shader = info.shader,
   }
@@ -25,18 +25,18 @@ create_pipeline :: proc(ctx: ^Context, info: ^rendering.Pipeline_Create_Info) ->
   return handle_map.add(&ctx.pipelines, state)
 }
 
-destroy_pipeline :: proc(ctx: ^Context, pipeline: rendering.Pipeline) {
+destroy_pipeline :: proc(pipeline: rendering.Pipeline) {
   handle_map.remove(&ctx.pipelines, pipeline)
 }
 
-bind_pipeline :: proc(ctx: ^Context, pipeline: rendering.Pipeline) {
+bind_pipeline :: proc(pipeline: rendering.Pipeline) {
   ctx.current_pipeline = pipeline
   state := handle_map.get(&ctx.pipelines, pipeline)
   shader_state := handle_map.get(&ctx.shaders, state.shader)
   gl.UseProgram(shader_state.program_id)
 }
 
-bind_vertex_buffers :: proc(ctx: ^Context, buffers: []rendering.Buffer) {
+bind_vertex_buffers :: proc(buffers: []rendering.Buffer) {
   pip := handle_map.get(&ctx.pipelines, ctx.current_pipeline)
   assert(len(pip.vertex_layout) == len(buffers))
 
@@ -53,14 +53,14 @@ bind_vertex_buffers :: proc(ctx: ^Context, buffers: []rendering.Buffer) {
   }
 }
 
-bind_index_buffer :: proc(ctx: ^Context, buffer: rendering.Buffer) {
+bind_index_buffer :: proc(buffer: rendering.Buffer) {
   buf := handle_map.get(&ctx.buffers, buffer)
   gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, buf.id)
 }
 
 // TODO:
 //  add drawing without index buffer
-draw :: proc(ctx: ^Context, element_count, first_element, instance_count, first_instance: int) {
+draw :: proc(element_count, first_element, instance_count, first_instance: int) {
   if instance_count > 1 {
     gl.DrawElementsInstancedBaseInstance(gl.TRIANGLES, i32(element_count), gl.UNSIGNED_SHORT, rawptr(uintptr(first_element)), i32(instance_count), u32(first_instance))
   } else {

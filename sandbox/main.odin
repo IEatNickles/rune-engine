@@ -1,12 +1,14 @@
 package sandbox
 
 import "../rune_engine/"
-import "../rune_engine/renderer"
 
 import "vendor:stb/image"
 
 import "core:math"
 import "core:math/linalg"
+
+vert_src := #load("assets/shaders/default.vert.spv", []u32)
+frag_src := #load("assets/shaders/default.frag.spv", []u32)
 
 Input_Map :: enum {
   W, A, S, D,
@@ -56,7 +58,7 @@ main :: proc() {
       "Rune Engine Demo",
       1280, 720,
     },
-    rendering_backend = .OpenGL,
+    rendering_backend = .Vulkan,
   })
   defer rune_engine.terminate()
 
@@ -67,24 +69,26 @@ game_layer_on_attach :: proc() {
   p := rune_engine.create_project("Test", "/home/jdw/dev/rune-engine/sandbox")
 
   sandbox.scene = rune_engine.scene_create("New Scene")
-  rune_engine.set_clear_color({55 / 255.0, 180 / 255.0, 180 / 255.0, 1.0})
   rune_engine.set_cursor_state(.LockedAndHidden)
-
-  sandbox.monky = rune_engine.load_model_gltf("assets/models/moky.glb")
-  // defer rune_engine.destroy_model(&monky)
 
   w, h: i32
   data := image.load("assets/textures/doodoo.png", &w, &h, nil, 4)
-  tex := rune_engine.create_texture(&{
-    format = .RGBA8,
-    size = { w, h, 1 },
-    data = data,
-    min_filter = .Linear,
-    mag_filter = .Linear,
-    wrap_mode_u = .Repeat,
-    wrap_mode_v = .Repeat,
+  tex := rune_engine.create_texture({
+    format = .RGBA8_UNORM,
+    extent = { u32(w), u32(h), 1 },
+    array_count = 1,
+    mip_levels = 1,
+    type = .D2,
+    usage = {.Texture_Binding},
   })
-  rune_engine.bind_texture(tex)
+  rune_engine.texture_set_pixels(tex, data, {}, {u32(w), u32(h), 1})
+
+  sandbox.monky = rune_engine.load_model_gltf("assets/models/moky.glb")
+  sandbox.monky.meshes[0].material = rune_engine.create_material({
+    vertex_shader = {code_type = .Spirv, code = vert_src},
+    fragment_shader = {code_type = .Spirv, code = frag_src},
+    textures = {tex},
+  })
 
   sandbox.e = rune_engine.create_entity(sandbox.scene)
   e2 := rune_engine.create_entity(sandbox.scene)
@@ -164,13 +168,20 @@ game_layer_on_update :: proc() {
     math.to_radians(sandbox.cam_rot.x),
     0,
   )
-  fw := -linalg.quaternion128_mul_vector3(cam_trf.rotation, [3]f32{0, 0, 1})
-  rg := -linalg.quaternion128_mul_vector3(cam_trf.rotation, [3]f32{1, 0, 0})
+  fw := -linalg.mul(cam_trf.rotation, [3]f32{0, 0, 1})
+  rg := -linalg.mul(cam_trf.rotation, [3]f32{1, 0, 0})
   speed: f32 = 0.1
   cam_trf.position += (fw * sandbox.input_dir.z + rg * sandbox.input_dir.x) * speed + {0, speed * sandbox.input_dir.y, 0}
   cam := rune_engine.get_component(sandbox.scene, sandbox.e, rune_engine.CameraComponent)
 
   rune_engine.update_scene(sandbox.scene)
+  // view := rune_engine.get_render_target()
+  // rune_engine.begin_pass(&{
+  //   swapchain = rune_engine.get_swapchain(),
+  //   color_attachments = {
+  //     {clear_color = {0.1, 0.3, 0.2, 1.0}, format = .BGRA8, load_action = .Clear}
+  //   }
+  // })
   for cam_arch in rune_engine.query(sandbox.scene, rune_engine.has(rune_engine.CameraComponent), rune_engine.has(rune_engine.TransformComponent)) {
     cam_table := rune_engine.get_table(sandbox.scene, cam_arch, rune_engine.CameraComponent)
     cam_trf_table := rune_engine.get_table(sandbox.scene, cam_arch, rune_engine.TransformComponent)
@@ -182,8 +193,10 @@ game_layer_on_update :: proc() {
     rune_engine.begin_scene(view, proj)
     rune_engine.draw_scene(sandbox.scene)
   }
+  // rune_engine.end_pass()
+  // rune_engine.submit()
+  // rune_engine.present()
 }
 
 game_layer_on_detach :: proc() {
-  rune_engine.destroy_model(&sandbox.monky)
 }

@@ -5,12 +5,12 @@ import ".."
 
 import gl "vendor:OpenGL"
 
-begin_pass :: proc(ctx: ^Context, info: ^rendering.Pass_Info) {
+begin_pass :: proc(info: ^rendering.Pass_Info) {
   gl.BindFramebuffer(gl.FRAMEBUFFER, ctx.fbo)
   for att, i in info.color_attachments {
-    if att.texture != {} {
-      tex_state := handle_map.get(&ctx.textures, att.texture)
-      gl.FramebufferTexture(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + u32(i), tex_state.id, 0)
+    if att.view != {} {
+      tex_state := handle_map.get(&ctx.image_views, att.view)
+      gl.FramebufferTexture(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + u32(i), tex_state.image, 0)
     }
     if att.load_action == .Clear {
       clear_color := att.clear_color
@@ -30,6 +30,6 @@ begin_pass :: proc(ctx: ^Context, info: ^rendering.Pass_Info) {
   }
 }
 
-end_pass :: proc(ctx: ^Context) {
+end_pass :: proc() {
   gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }

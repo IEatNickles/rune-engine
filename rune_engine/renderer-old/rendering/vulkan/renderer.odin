@@ -10,30 +10,103 @@ import "vendor:glfw"
 
 import ".."
 
+MAX_FRAMES_IN_FLIGHT :: 2
 VALIDATION_LAYERS :: []cstring {
   "VK_LAYER_KHRONOS_validation"
 }
 
-Context :: struct {
-  shaders: hm.Dynamic_Handle_Map(Shader_State, rendering.Shader),
+ctx: struct {
+  pipelines:   hm.Dynamic_Handle_Map(Pipeline_State, rendering.Pipeline),
+  shaders:     hm.Dynamic_Handle_Map(Shader_State, rendering.Shader),
+  textures:    hm.Dynamic_Handle_Map(Texture_State, rendering.Texture),
+  buffers:     hm.Dynamic_Handle_Map(Buffer_State, rendering.Buffer),
+  images:      hm.Dynamic_Handle_Map(Image_State, rendering.Image),
+  image_views: hm.Dynamic_Handle_Map(Image_View_State, rendering.Image_View),
+  bindings:    hm.Dynamic_Handle_Map(Bindings_State, rendering.Bindings),
 
   instance:     vk.Instance,
-  device:       vk.Device,
   phys_device:  vk.PhysicalDevice,
+  device:       vk.Device,
   queue:        vk.Queue,
   queue_family: u32,
+
+  swapchain: rendering.Vk_Swapchain,
+  // surface:        vk.SurfaceKHR,
+  // surface_format: vk.SurfaceFormatKHR,
+  // swapchain:      vk.SwapchainKHR,
+  // sc_raw_images:  [^]vk.Image,
+  // sc_images:      [^]rendering.Image,
+  // sc_image_views: [^]rendering.Image_View,
+  // sc_image_count: u32,
+  // sc_image_index: u32,
+
+  command_pool:     vk.CommandPool,
+  command_buffer:   vk.CommandBuffer,
+  command_buffers:  [^]vk.CommandBuffer,
+  current_frame: struct {
+    cmd_buf:     vk.CommandBuffer,
+    index:       i32,
+    image_index: i32,
+  },
+
+  current_pass: struct {
+    pipeline: struct {
+      layout:     vk.PipelineLayout,
+      bind_point: vk.PipelineBindPoint,
+    }
+  },
+
+  descriptor_pool: vk.DescriptorPool,
+
+  // submit_semaphores: [^]vk.Semaphore,
+  // image_available_semaphores: [^]vk.Semaphore,
+  in_flight_fences:           [^]vk.Fence,
+  // fence:     vk.Fence,
+  // semaphore: vk.Semaphore,
+  // wait_semaphores:             [dynamic]vk.Semaphore,
+  // signal_semaphores:           [dynamic]vk.Semaphore,
+
+  indexed_draw: bool,
 }
 
-create_context :: proc() -> ^Context {
-  ctx := new(Context)
+create_context :: proc(/* features: rendering.Renderer_Feature_Flags */ info: ^rendering.Vk_Renderer_Create_Info) {
   vk.load_proc_addresses_global(auto_cast vk_get_instance_proc_address)
-  create_instance(ctx)
-  pick_physical_device(ctx)
-  create_device(ctx)
-  return ctx
+  // create_instance()
+  // pick_physical_device()
+  // create_device()
+  ctx.instance = info.instance
+  ctx.phys_device = info.phys_device
+  ctx.device = info.device
+  ctx.queue = info.queue
+  ctx.queue_family = info.queue_family
+  // ctx.surface = info.surface
+  // create_swapchain()
+  create_command_pool()
+  // fence_info := vk.FenceCreateInfo { sType = .FENCE_CREATE_INFO }
+  // vk.CreateFence(ctx.device, &fence_info, nil, &ctx.fence)
+  // semaphore_info := vk.SemaphoreCreateInfo { sType = .SEMAPHORE_CREATE_INFO }
+  // vk.CreateSemaphore(ctx.device, &semaphore_info, nil, &ctx.semaphore)
+  create_sync_objects()
+
+  pool_sizes := []vk.DescriptorPoolSize {
+    {
+      type = .UNIFORM_BUFFER,
+      descriptorCount = MAX_FRAMES_IN_FLIGHT
+    },
+    {
+      type = .COMBINED_IMAGE_SAMPLER,
+      descriptorCount = MAX_FRAMES_IN_FLIGHT
+    }
+  }
+  vk.CreateDescriptorPool(ctx.device, &vk.DescriptorPoolCreateInfo {
+    sType = .DESCRIPTOR_POOL_CREATE_INFO,
+    maxSets = MAX_FRAMES_IN_FLIGHT,
+    poolSizeCount = u32(len(pool_sizes)),
+    pPoolSizes = raw_data(pool_sizes),
+  }, nil, &ctx.descriptor_pool)
 }
 
-create_instance :: proc(ctx: ^Context) {
+create_instance :: proc() {
   exts := glfw.GetRequiredInstanceExtensions()
   required_extensions: [dynamic]cstring
   reserve(&required_extensions, len(exts) + 2)
@@ -76,7 +149,7 @@ create_instance :: proc(ctx: ^Context) {
   vk.load_proc_addresses_instance(ctx.instance)
 }
 
-pick_physical_device :: proc(ctx: ^Context) {
+pick_physical_device :: proc() {
   device_count: u32
   vk.EnumeratePhysicalDevices(ctx.instance, &device_count, nil)
   devices := make([^]vk.PhysicalDevice, device_count)
@@ -125,7 +198,7 @@ pick_physical_device :: proc(ctx: ^Context) {
   }
 }
 
-create_device :: proc(ctx: ^Context) {
+create_device :: proc() {
   required_extensions := []cstring {
     vk.KHR_SWAPCHAIN_EXTENSION_NAME,
     vk.EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
@@ -191,6 +264,72 @@ create_device :: proc(ctx: ^Context) {
   vk.CreateDevice(ctx.phys_device, &create_info, nil, &ctx.device)
   vk.GetDeviceQueue(ctx.device, ctx.queue_family, 0, &ctx.queue)
 }
+
+create_command_pool :: proc() {
+  create_info := vk.CommandPoolCreateInfo {
+    sType = .COMMAND_POOL_CREATE_INFO,
+    queueFamilyIndex = ctx.queue_family,
+    flags = { .RESET_COMMAND_BUFFER },
+  }
+  vk.CreateCommandPool(ctx.device, &create_info, nil, &ctx.command_pool)
+
+  ctx.command_buffers = make([^]vk.CommandBuffer, MAX_FRAMES_IN_FLIGHT)
+  alloc_info := vk.CommandBufferAllocateInfo {
+    sType = .COMMAND_BUFFER_ALLOCATE_INFO,
+    commandBufferCount = MAX_FRAMES_IN_FLIGHT,
+    commandPool = ctx.command_pool,
+    level = .PRIMARY
+  }
+  vk.AllocateCommandBuffers(ctx.device, &alloc_info, ctx.command_buffers)
+
+  // alloc_info = vk.CommandBufferAllocateInfo {
+  //   sType = .COMMAND_BUFFER_ALLOCATE_INFO,
+  //   commandBufferCount = 1,
+  //   commandPool = ctx.command_pool,
+  // }
+  // vk.AllocateCommandBuffers(ctx.device, &alloc_info, &ctx.command_buffer)
+}
+
+create_sync_objects :: proc() {
+  // ctx.submit_semaphores = make([^]vk.Semaphore, MAX_FRAMES_IN_FLIGHT)
+  // ctx.image_available_semaphores = make([^]vk.Semaphore, MAX_FRAMES_IN_FLIGHT)
+  ctx.in_flight_fences = make([^]vk.Fence, MAX_FRAMES_IN_FLIGHT)
+
+  // semaphore_info := vk.SemaphoreCreateInfo { sType = .SEMAPHORE_CREATE_INFO }
+  // for i in 0..<MAX_FRAMES_IN_FLIGHT {
+  //   vk.CreateSemaphore(ctx.device, &semaphore_info, nil, &ctx.submit_semaphores[i])
+  //   when ODIN_DEBUG {
+  //     vk.SetDebugUtilsObjectNameEXT(ctx.device, &{
+  //       sType = .DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+  //       pObjectName = fmt.caprintf("Submit Semaphore({})", i),
+  //       objectHandle = u64(ctx.submit_semaphores[i]),
+  //       objectType = .SEMAPHORE,
+  //     })
+  //   }
+  //   vk.CreateSemaphore(ctx.device, &semaphore_info, nil, &ctx.image_available_semaphores[i])
+  //   when ODIN_DEBUG {
+  //     vk.SetDebugUtilsObjectNameEXT(ctx.device, &{
+  //       sType = .DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+  //       pObjectName = fmt.caprintf("Image Available Semaphore({})", i),
+  //       objectHandle = u64(ctx.image_available_semaphores[i]),
+  //       objectType = .SEMAPHORE,
+  //     })
+  //   }
+  // }
+
+  create_info := vk.FenceCreateInfo { sType = .FENCE_CREATE_INFO, flags = { .SIGNALED } }
+  for i in 0..<MAX_FRAMES_IN_FLIGHT {
+    vk.CreateFence(ctx.device, &create_info, nil, &ctx.in_flight_fences[i])
+  }
+}
+
+// queue_wait_semaphore :: proc(semaphore: vk.Semaphore) {
+//   append(&ctx.wait_semaphores, semaphore)
+// }
+//
+// queue_signal_semaphore :: proc(semaphore: vk.Semaphore) {
+//   append(&ctx.signal_semaphores, semaphore)
+// }
 
 vk_get_instance_proc_address :: proc "c" (p: rawptr, name: cstring) -> rawptr {
   context = runtime.default_context()

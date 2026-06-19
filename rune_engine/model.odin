@@ -1,6 +1,6 @@
 package rune_engine
 
-import "core:fmt"
+import "core:math/linalg"
 import "core:log"
 import "vendor:cgltf"
 
@@ -11,6 +11,7 @@ Mesh :: struct {
   index_buffer:   renderer.Buffer,
   transform:      matrix[4,4]f32,
   index_count:    int,
+  material:       Material,
 }
 
 Model :: struct {
@@ -154,11 +155,12 @@ load_model_gltf :: proc(path: string) -> Model {
 			}
 		}
 		mesh := create_mesh(
-			positions[:],
-			normals[:],
-			texcoords[:],
-			colors[:],
-			tangents[:],
+			raw_data(positions),
+			raw_data(normals),
+			raw_data(texcoords),
+			raw_data(colors),
+			raw_data(tangents),
+      len(positions)/3,
 			indices[:],
 			mat,
 		)
@@ -168,55 +170,75 @@ load_model_gltf :: proc(path: string) -> Model {
 	return Model{meshes[:]}
 }
 
-destroy_model :: proc(model: ^Model) {
+draw_model :: proc(pass: renderer.Render_Pass, model: ^Model) {
   for m in model.meshes {
-    renderer.destroy_buffer(&application.renderer, m.vertex_buffers[0])
-    renderer.destroy_buffer(&application.renderer, m.vertex_buffers[1])
-    renderer.destroy_buffer(&application.renderer, m.vertex_buffers[2])
-    renderer.destroy_buffer(&application.renderer, m.vertex_buffers[3])
-    renderer.destroy_buffer(&application.renderer, m.vertex_buffers[4])
-    renderer.destroy_buffer(&application.renderer, m.index_buffer)
-  }
-}
-
-draw_model :: proc(model: ^Model) {
-  for m in model.meshes {
-    draw_mesh(m)
+    draw_mesh(pass, m, linalg.MATRIX4F32_IDENTITY)
   }
 }
 
 create_mesh :: proc(
-	positions, normals, texcoords, colors, tangents: []f32,
+	positions, normals, texcoords, colors, tangents: [^]f32,
+  vertex_count: int,
 	indices: []u16,
 	transform: matrix[4, 4]f32,
 ) -> (mesh: Mesh) {
-  mesh.vertex_buffers[0] = renderer.create_buffer(&application.renderer, &{
+  // Positions
+  mesh.vertex_buffers[0] = renderer.device_create_buffer(application.device, {
     usage = { .Vertex_Buffer },
-    data = raw_data(positions),
-    size = len(positions) * size_of(f32),
+    size = u32(vertex_count * size_of([3]f32)),
   })
-  mesh.vertex_buffers[1] = renderer.create_buffer(&application.renderer, &{
+  renderer.device_write_buffer(application.device, {
+    buffer = mesh.vertex_buffers[0],
+    data = positions,
+    size = vertex_count * size_of([3]f32),
+  })
+  // Normals
+  mesh.vertex_buffers[1] = renderer.device_create_buffer(application.device, {
     usage = { .Vertex_Buffer },
-    data = raw_data(normals),
-    size = len(normals) * size_of(f32),
+    size = u32(vertex_count * size_of([3]f32)),
   })
-  mesh.vertex_buffers[2] = renderer.create_buffer(&application.renderer, &{
+  renderer.device_write_buffer(application.device, {
+    buffer = mesh.vertex_buffers[1],
+    data = normals,
+    size = vertex_count * size_of([3]f32),
+  })
+  // Texcoords
+  mesh.vertex_buffers[2] = renderer.device_create_buffer(application.device, {
     usage = { .Vertex_Buffer },
-    data = raw_data(texcoords),
-    size = len(texcoords) * size_of(f32),
+    size = u32(vertex_count * size_of([2]f32)),
   })
-  mesh.vertex_buffers[3] = renderer.create_buffer(&application.renderer, &{
+  renderer.device_write_buffer(application.device, {
+    buffer = mesh.vertex_buffers[2],
+    data = texcoords,
+    size = vertex_count * size_of([2]f32),
+  })
+  // Colors
+  mesh.vertex_buffers[3] = renderer.device_create_buffer(application.device, {
     usage = { .Vertex_Buffer },
-    data = raw_data(colors),
-    size = len(colors) * size_of(f32),
+    size = u32(vertex_count * size_of([4]f32)),
   })
-  mesh.vertex_buffers[4] = renderer.create_buffer(&application.renderer, &{
+  renderer.device_write_buffer(application.device, {
+    buffer = mesh.vertex_buffers[3],
+    data = colors,
+    size = vertex_count * size_of([4]f32),
+  })
+  // Tangents
+  mesh.vertex_buffers[4] = renderer.device_create_buffer(application.device, {
     usage = { .Vertex_Buffer },
-    data = raw_data(tangents),
-    size = len(tangents) * size_of(f32),
+    size = u32(vertex_count * size_of([4]f32)),
   })
-  mesh.index_buffer = renderer.create_buffer(&application.renderer, &{
+  renderer.device_write_buffer(application.device, {
+    buffer = mesh.vertex_buffers[4],
+    data = tangents,
+    size = vertex_count * size_of([4]f32),
+  })
+  // Indices
+  mesh.index_buffer = renderer.device_create_buffer(application.device, {
     usage = { .Index_Buffer },
+    size = u32(len(indices) * size_of(u16)),
+  })
+  renderer.device_write_buffer(application.device, {
+    buffer = mesh.index_buffer,
     data = raw_data(indices),
     size = len(indices) * size_of(u16),
   })
@@ -225,9 +247,16 @@ create_mesh :: proc(
 	return
 }
 
-draw_mesh :: proc(mesh: Mesh) {
+draw_mesh :: proc(pass: renderer.Render_Pass, mesh: Mesh, transform: matrix[4,4]f32) {
   vbs := mesh.vertex_buffers
-  renderer.bind_vertex_buffers(&application.renderer, vbs[:])
-  renderer.bind_index_buffer(&application.renderer, mesh.index_buffer)
-  renderer.draw(&application.renderer, mesh.index_count)
+  renderer.render_pass_set_pipeline(pass, mesh.material.pipeline)
+  renderer.render_pass_set_push_constants(pass, {
+    stages = {.Vertex},
+    data = &current_camera,
+    size = size_of(Scene_Shader_Data),
+  })
+  renderer.render_pass_set_bind_group(pass, 0, mesh.material.bind_group)
+  renderer.render_pass_set_vertex_buffers(pass, vbs[:])
+  renderer.render_pass_set_index_buffer(pass, mesh.index_buffer, .U16)
+  renderer.render_pass_draw(pass, mesh.index_count)
 }

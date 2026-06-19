@@ -12,7 +12,7 @@ import "core:mem"
 import "core:strings"
 
 import "../rune_engine/"
-import "../rune_engine/rendering/"
+// import "../rune_engine/rendering/"
 
 import imgui "deps/odin-imgui"
 import "deps/odin-imgui/imgui_impl_glfw"

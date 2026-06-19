@@ -1,7 +1,7 @@
 package rune_engine
 
-import "core:encoding/json"
-import gl "vendor:OpenGL"
+import "core:strings"
+// import "core:encoding/json"
 import "vendor:glfw"
 
 import "base:runtime"
@@ -26,7 +26,7 @@ import "input"
 glfw_context := runtime.default_context()
 @(private)
 application: struct {
-  window:         Window,
+  window:         glfw.WindowHandle,
   running:        bool,
   // input:          struct {
   //  keys:               input.KeyCode_BitSet,
@@ -42,10 +42,13 @@ application: struct {
   delta_time:     f32,
   logger:         log.Logger,
 
-  default_shader:    renderer.Shader,
   default_pipeline:  renderer.Pipeline,
-  rendering_backend: renderer.RenderApiType,
-  renderer:          renderer.Renderer,
+  default_bg_layout: renderer.Bind_Group_Layout,
+  default_bindings:  renderer.Bind_Group,
+  rendering_backend: renderer.Backend,
+  instance:          renderer.Instance,
+  device:            renderer.Device,
+  surface:           renderer.Surface,
 
   init_proc:   proc(),
   update_proc: proc(),
@@ -68,10 +71,12 @@ App_Info :: struct {
   update_proc: proc(),
   event_proc:  proc(_: Event),
   quit_proc:   proc(),
-  rendering_backend: renderer.RenderApiType,
+  rendering_backend: renderer.Backend,
 }
 
 init :: proc(info: App_Info) {
+  runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+
   application.init_proc = info.init_proc
   application.update_proc = info.update_proc
   application.event_proc = info.event_proc
@@ -86,10 +91,26 @@ init :: proc(info: App_Info) {
   context.logger = application.logger
   log.info("logger created")
 
-  application.window = window_create(info.window.width, info.window.height, info.window.title, application.rendering_backend)
-  application.renderer = renderer.create_renderer(application.rendering_backend)
+  // application.window = window_create(info.window.width, info.window.height, info.window.title, application.rendering_backend)
+  glfw.InitHint(glfw.PLATFORM, glfw.PLATFORM_X11)
+  glfw.Init()
+  glfw.WindowHint(glfw.RESIZABLE, glfw.FALSE)
+  glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
+  application.window = glfw.CreateWindow(i32(info.window.width), i32(info.window.height), strings.clone_to_cstring(info.window.title, context.temp_allocator), nil, nil)
+  application.instance, _ = renderer.create_instance(renderer.Instance_Desc {
+    backends = renderer.SUPPORTED_BACKENDS,
+    enable_validation = true,
+    surface_desc = get_surface_desc(application.window),
+  })
+  application.device = renderer.instance_get_device(application.instance)
+  application.surface = renderer.instance_get_surface(application.instance)
+  w, h := glfw.GetFramebufferSize(application.window)
+  renderer.surface_configure(application.surface, {
+    extent = {u32(w), u32(h)},
+    format = .BGRA8_UNORM,
+  })
 
-  glfw.SetKeyCallback(application.window.handle, proc "c" (_: glfw.WindowHandle, key, scancode, action, mods: i32) {
+  glfw.SetKeyCallback(application.window, proc "c" (_: glfw.WindowHandle, key, scancode, action, mods: i32) {
     if application.event_proc == nil do return
     context = glfw_context
     ev: Key_Event
@@ -103,7 +124,7 @@ init :: proc(info: App_Info) {
     if mods & glfw.MOD_NUM_LOCK != 0  do ev.mods |= { .NumLock }
     application.event_proc(ev)
   })
-  glfw.SetMouseButtonCallback(application.window.handle, proc "c" (_: glfw.WindowHandle, button, action, mods: i32) {
+  glfw.SetMouseButtonCallback(application.window, proc "c" (_: glfw.WindowHandle, button, action, mods: i32) {
     if application.event_proc == nil do return
     context = glfw_context
     ev: Mouse_Button_Event
@@ -111,7 +132,7 @@ init :: proc(info: App_Info) {
     ev.action = auto_cast action
     application.event_proc(ev)
   })
-  glfw.SetCursorPosCallback(application.window.handle, proc "c" (_: glfw.WindowHandle, xpos, ypos: f64) {
+  glfw.SetCursorPosCallback(application.window, proc "c" (_: glfw.WindowHandle, xpos, ypos: f64) {
     if application.event_proc == nil do return
     context = glfw_context
     @(static) prev_pos: [2]f32
@@ -121,7 +142,7 @@ init :: proc(info: App_Info) {
     prev_pos = ev.position
     application.event_proc(ev)
   })
-  glfw.SetScrollCallback(application.window.handle, proc "c" (_: glfw.WindowHandle, xoffset, yoffset: f64) {
+  glfw.SetScrollCallback(application.window, proc "c" (_: glfw.WindowHandle, xoffset, yoffset: f64) {
     if application.event_proc == nil do return
     context = glfw_context
     ev: Scroll_Event
@@ -129,14 +150,14 @@ init :: proc(info: App_Info) {
     ev.vertical = f32(yoffset)
     application.event_proc(ev)
   })
-  glfw.SetCharCallback(application.window.handle, proc "c" (_: glfw.WindowHandle, codepoint: rune) {
+  glfw.SetCharCallback(application.window, proc "c" (_: glfw.WindowHandle, codepoint: rune) {
     if application.event_proc == nil do return
     context = glfw_context
     ev: Text_Event
     ev.codepoint = codepoint
     application.event_proc(ev)
   })
-  glfw.SetCursorEnterCallback(application.window.handle, proc "c" (_: glfw.WindowHandle, entered: i32) {
+  glfw.SetCursorEnterCallback(application.window, proc "c" (_: glfw.WindowHandle, entered: i32) {
     if application.event_proc == nil do return
     context = glfw_context
     ev: Mouse_Enter_Event
@@ -144,43 +165,66 @@ init :: proc(info: App_Info) {
     application.event_proc(ev)
   })
 
-  vs_blocks: renderer.Shader_Reflection_Data
-  json.unmarshal_string(vs_uniform_blocks, &vs_blocks)
-  fs_blocks: renderer.Shader_Reflection_Data
-  json.unmarshal_string(fs_uniform_blocks, &fs_blocks)
+  // TODO:
+  // vs_blocks: renderer.Shader_Reflection_Data
+  // json.unmarshal_string(vs_uniform_blocks, &vs_blocks)
+  // fs_blocks: renderer.Shader_Reflection_Data
+  // fs_blocks.descriptor_bindings["u_texture"] = {
+  //   binding = 0,
+  //   id = 24,
+  //   name = "u_texture",
+  //   type = rendering.Combined_Image_Sampler {
+  //     dim = .D2,
+  //   }
+  // }
+  // json.unmarshal_string(fs_uniform_blocks, &fs_blocks)
 
   application.running = true
   // application.default_shader = load_shader("assets/shaders/test.glsl")
-  application.default_shader = application.renderer.create_shader(application.renderer.ctx, &{
-    vs_func = {
-      spirv_code = vs_spirv[:],
-      glsl_code = vs_glsl[:],
-      hlsl_code = vs_hlsl[:],
-      msl_code = vs_msl[:],
-      reflection_data = vs_blocks,
-    },
-    fs_func = {
-      spirv_code = fs_spirv[:],
-      glsl_code = fs_glsl[:],
-      hlsl_code = fs_hlsl[:],
-      msl_code = fs_msl[:],
-      reflection_data = fs_blocks,
-    },
-  })
-  application.default_pipeline = application.renderer.create_pipeline(application.renderer.ctx, &{
-    vertex_layout = {
-      {format = .RGB32F,  location = 0},
-      {format = .RGB32F,  location = 1},
-      {format = .RG32F,   location = 2},
-      {format = .RGBA32F, location = 3},
-      {format = .RGBA32F, location = 4}
-    },
-    shader = application.default_shader,
-  })
+  // vs := renderer.device_create_shader(application.device, {
+  //   code_type = .Spirv,
+  //   code = slice.reinterpret([]u32, vs_spirv[:]),
+  // })
+  // fs := renderer.device_create_shader(application.device, {
+  //   code_type = .Spirv,
+  //   code = slice.reinterpret([]u32, fs_spirv[:]),
+  // })
+  // application.default_bg_layout = renderer.device_create_bind_group_layout(application.device, {
+  //   entries = {
+  //     {
+  //       binding = 0,
+  //       visibility = {.Fragment},
+  //       layout = renderer.Texture_Binding_Layout{dim = .D2},
+  //     }
+  //   }
+  // })
+  // application.default_pipeline = renderer.device_create_graphics_pipeline(application.device, {
+  //   vertex_shader = vs,
+  //   fragment_shader = fs,
+  //   attributes = {
+  //     {format = .RGB32_FLOAT,  location = 0},
+  //     {format = .RGB32_FLOAT,  location = 1},
+  //     {format = .RG32_FLOAT,   location = 2},
+  //     {format = .RGBA32_FLOAT, location = 3},
+  //     {format = .RGBA32_FLOAT, location = 4}
+  //   },
+  //   bindings = { {binding = 0, stride = size_of([3+3+2+4+4]f32)}, },
+  //   push_constant_ranges = {
+  //     {stages = {.Vertex}, size = size_of(matrix[4,4]f32) * 3},
+  //   },
+  //   bind_group_layouts = {application.default_bg_layout},
+  //   topology = .Triangle_List,
+  // })
+  // application.default_bindings = renderer.device_create_bind_group(application.device, {
+  //   layout = application.default_bg_layout,
+  //   entries = {
+  //     {binding = 0,}
+  //   }
+  // })
 }
 
 terminate :: proc() {
-  renderer.destroy_shader(&application.renderer, application.default_shader)
+  renderer.destroy_instance(application.instance)
 
   glfw.Terminate()
   log.destroy_file_logger(application.logger)
@@ -203,12 +247,8 @@ run :: proc() {
   if application.quit_proc != nil do application.quit_proc()
 }
 
-set_clear_color :: proc(color: [4]f32) {
-  gl.ClearColor(color.r, color.g, color.b, color.a)
-}
-
 frame_start :: proc() {
-  gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+  // gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
   // application.input.prev_keys = application.input.keys
   // application.input.prev_mouse_buttons = application.input.mouse_buttons
@@ -217,7 +257,9 @@ frame_start :: proc() {
 }
 
 frame_end :: proc() {
-  glfw.SwapBuffers(application.window.handle)
+  if application.rendering_backend == .OpenGL {
+    glfw.SwapBuffers(application.window)
+  }
   // application.input.mouse_delta = 0
   application.delta_time = cast(f32)glfw.GetTime() - application.time
   application.time = cast(f32)glfw.GetTime()
@@ -226,7 +268,7 @@ frame_end :: proc() {
 }
 
 close :: proc() {
-  glfw.SetWindowShouldClose(application.window.handle, true)
+  glfw.SetWindowShouldClose(application.window, true)
   application.running = false
 }
 
@@ -238,9 +280,9 @@ get_delta_time :: proc() -> f32 {
   return cast(f32)glfw.GetTime() - application.time
 }
 
-get_window :: proc() -> Window {
-  return application.window
-}
+// get_window :: proc() -> Window {
+//   return application.window
+// }
 
 setup_glfw_callbacks :: proc() {
   // glfw.SetKeyCallback(

@@ -1,5 +1,6 @@
 package rune_engine
 
+import "vendor:glfw"
 import "base:runtime"
 import "core:fmt"
 import "core:math/linalg"
@@ -232,8 +233,38 @@ begin_scene :: proc(view, projection: matrix[4, 4]f32) {
   current_camera.projection = projection
 }
 
+depth_tex:  renderer.Texture
+depth_view: renderer.Texture_View
 draw_scene :: proc(self: ^Scene) {
-	renderer.bind_pipeline(&application.renderer, application.default_pipeline)
+  if depth_view == {} {
+    w, h := glfw.GetFramebufferSize(application.window)
+    depth_tex = renderer.device_create_texture(application.device, {
+      dim = .D2,
+      array_count = 1,
+      extent = {u32(w), u32(h), 1},
+      format = .D32_FLOAT_S8_UINT,
+      mip_levels = 1,
+      usage = {.Render_Attachment},
+    })
+    depth_view = renderer.device_create_texture_view(application.device, {
+      texture = depth_tex,
+      array_layer_count = 1,
+      mip_level_count = 1,
+      dim = .D2,
+    })
+  }
+  cmd := renderer.device_begin_commands(application.device)
+  surface_tex := renderer.surface_get_current_texture(application.surface)
+  pass := renderer.command_buffer_begin_render_pass(cmd, {
+    color_attachents = {
+      {view = surface_tex.view, clear_value = {0.1, 0.1, 0.2, 1.0}, load_action = .Clear}
+    },
+    depth_stencil_attachment = renderer.Depth_Stencil_Attachment {
+      view = depth_view,
+      depth_ops = {clear_value = 1.0, load_action = .Clear, store_action = .Store},
+    }
+  })
+	// renderer.render_pass_set_pipeline(pass, application.default_pipeline)
 	// world: matrix[4, 4]f32
 
   // for cam_arch in query(self, has(CameraComponent), has(TransformComponent)) {
@@ -253,9 +284,11 @@ draw_scene :: proc(self: ^Scene) {
         mesh_trf := mesh_trf_table[i]
         current_camera.world = linalg.matrix4_from_trs(mesh_trf.position, mesh_trf.rotation, mesh_trf.scale)
         // set_shader_mat4(application.default_shader, "scene.u_world", &world)
-        renderer.shader_set_push_constants(&application.renderer, application.default_shader, "scene", &current_camera)
-        draw_mesh(mesh_table[i].mesh)
+        draw_mesh(pass, mesh_table[i].mesh, linalg.MATRIX4F32_IDENTITY)
       }
     }
   // }
+  renderer.command_buffer_end_render_pass(cmd)
+  renderer.device_submit_commands(application.device, cmd)
+  renderer.surface_present(application.surface)
 }
